@@ -80,6 +80,8 @@ impl DefaultProvider {
     /// * `config` - Remote provider configuration with command templates
     /// * `copy_dirs` - Directories to copy into the image (local_path, remote_path).
     ///   These are baked into the image during prepare, making sandbox creation faster.
+    /// * `no_cache` - If true, skips appending `--cached` to the prepare command,
+    ///   forcing a fresh image build.
     ///
     /// # Errors
     ///
@@ -87,6 +89,7 @@ impl DefaultProvider {
     pub async fn from_config(
         config: DefaultProviderConfig,
         copy_dirs: &[(std::path::PathBuf, std::path::PathBuf)],
+        no_cache: bool,
     ) -> ProviderResult<Self> {
         let mut connector = ShellConnector::new().with_timeout(config.timeout_secs);
 
@@ -102,6 +105,12 @@ impl DefaultProvider {
 
             // Build prepare command with copy_dirs (both TOML-configured and CLI-provided)
             let mut full_prepare_cmd = prepare_cmd.clone();
+
+            // Append --cached flag unless no_cache is set
+            if !no_cache {
+                full_prepare_cmd.push_str(" --cached");
+            }
+
             for copy_spec in &config.copy_dirs {
                 full_prepare_cmd.push_str(&format!(" --copy-dir={}", copy_spec));
             }
@@ -662,7 +671,7 @@ mod tests {
             copy_dirs: vec![],
         };
 
-        let provider = DefaultProvider::from_config(config, &[]).await?;
+        let provider = DefaultProvider::from_config(config, &[], false).await?;
 
         // Create sandbox
         let sandbox_config = SandboxConfig {

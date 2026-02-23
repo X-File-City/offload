@@ -59,6 +59,10 @@ enum Commands {
         /// Environment variables to set in sandboxes (format: KEY=VALUE)
         #[arg(long = "env", value_name = "KEY=VALUE")]
         env_vars: Vec<String>,
+
+        /// Skip cached image lookup during prepare (forces fresh build)
+        #[arg(long)]
+        no_cache: bool,
     },
 
     /// Discover tests without running them
@@ -105,6 +109,7 @@ async fn main() -> Result<()> {
             collect_only,
             copy_dir,
             env_vars,
+            no_cache,
         } => {
             run_tests(
                 &cli.config,
@@ -112,6 +117,7 @@ async fn main() -> Result<()> {
                 collect_only,
                 copy_dir,
                 env_vars,
+                no_cache,
                 cli.verbose,
             )
             .await
@@ -147,6 +153,7 @@ async fn run_tests(
     collect_only: bool,
     copy_dir_args: Vec<String>,
     env_vars: Vec<String>,
+    no_cache: bool,
     verbose: bool,
 ) -> Result<()> {
     // Load configuration
@@ -319,7 +326,7 @@ async fn run_tests(
                 .iter()
                 .map(|cd| (cd.local.clone(), cd.remote.clone()))
                 .collect();
-            let provider = DefaultProvider::from_config(p_cfg.clone(), &copy_dir_tuples)
+            let provider = DefaultProvider::from_config(p_cfg.clone(), &copy_dir_tuples, no_cache)
                 .await
                 .context("Failed to create Default provider")?;
             run_all_tests(
@@ -338,7 +345,7 @@ async fn run_tests(
                 .iter()
                 .map(|cd| (cd.local.clone(), cd.remote.clone()))
                 .collect();
-            let provider = DefaultProvider::from_config(p_cfg.clone(), &copy_dir_tuples)
+            let provider = DefaultProvider::from_config(p_cfg.clone(), &copy_dir_tuples, no_cache)
                 .await
                 .context("Failed to create Default provider")?;
             run_all_tests(
@@ -357,7 +364,7 @@ async fn run_tests(
                 .iter()
                 .map(|cd| (cd.local.clone(), cd.remote.clone()))
                 .collect();
-            let provider = DefaultProvider::from_config(p_cfg.clone(), &copy_dir_tuples)
+            let provider = DefaultProvider::from_config(p_cfg.clone(), &copy_dir_tuples, no_cache)
                 .await
                 .context("Failed to create Default provider")?;
             run_all_tests(
