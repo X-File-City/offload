@@ -1,13 +1,7 @@
 # Ratchet violation budgets
 # These counts represent the maximum tolerated violations.
 # Counts can only be reduced (tightened) or explicitly bumped with justification.
-#
-# Regions:
-#   "." = global (all code)
-#   "scripts" = Python helper scripts (modal_sandbox.py etc.)
-#   "examples/tests" = test fixtures with intentionally "bad" patterns
 
-# Python rules (all zero globally, scripts has exceptions)
 [no-args-in-docstrings]
 "." = 0
 
@@ -44,6 +38,9 @@
 [no-exec-usage]
 "." = 0
 "scripts" = 1
+
+[no-expect]
+"." = 0
 
 [no-fixme-comments]
 "." = 0
@@ -87,6 +84,9 @@
 [no-pandas-import]
 "." = 0
 
+[no-panic]
+"." = 1
+
 [no-relative-imports]
 "." = 0
 
@@ -96,6 +96,9 @@
 [no-time-sleep]
 "." = 0
 "examples/tests" = 5
+
+[no-todo-comments]
+"." = 12
 
 [no-trailing-comments]
 "." = 0
@@ -107,24 +110,15 @@
 [no-underscore-imports]
 "." = 0
 
+[no-unwrap]
+"." = 4
+
 [no-while-true]
 "." = 0
 
 [no-yaml-usage]
 "." = 0
 
-# Rust rules (global budgets)
-[no-expect]
-"." = 0
-
-[no-panic]
-"." = 1
-
-[no-todo-comments]
-"." = 14
-
-[no-unwrap]
-"." = 4
-
 [rust-no-todo-comments]
-"." = 14
+"." = 12
+
