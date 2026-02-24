@@ -230,19 +230,7 @@ impl Scheduler {
         durations: &HashMap<String, Duration>,
         default_duration: Duration,
     ) -> Vec<Vec<TestInstance<'a>>> {
-        println!("\n============================================================");
-        println!("LPT SCHEDULER START");
-        println!("============================================================");
-        println!(
-            "Input: {} tests, {} workers, {} known durations, default={:?}",
-            tests.len(),
-            self.max_parallel,
-            durations.len(),
-            default_duration
-        );
-
         if tests.is_empty() {
-            println!("No tests to schedule, returning empty");
             return Vec::new();
         }
 
@@ -252,12 +240,6 @@ impl Scheduler {
             *instance_counts.entry(test.id()).or_insert(0) += 1;
         }
         let max_instances = instance_counts.values().copied().max().unwrap_or(1);
-        let unique_tests = instance_counts.len();
-
-        println!(
-            "Unique tests: {}, max instances per test: {}",
-            unique_tests, max_instances
-        );
 
         // Assert we have enough workers to avoid putting the same test in the same batch
         assert!(
@@ -267,129 +249,51 @@ impl Scheduler {
             max_instances
         );
 
-        // Phase 1: Look up durations for each test (with suffix matching for path prefix mismatches)
-        println!("\n--- PHASE 1: Duration Lookup ---");
-        let mut known_count = 0;
-        let mut default_count = 0;
+        // Look up durations for each test
         let mut tests_with_duration: Vec<(TestInstance<'a>, Duration)> = tests
             .iter()
             .map(|t| {
-                let (duration, source) = if let Some(&d) = durations.get(t.id()) {
-                    known_count += 1;
-                    (d, "junit.xml")
-                } else {
-                    default_count += 1;
-                    (default_duration, "DEFAULT")
-                };
-                println!("  {:?} <- {} [{}]", duration, t.id(), source);
+                let duration = durations.get(t.id()).copied().unwrap_or(default_duration);
                 (*t, duration)
             })
             .collect();
 
-        println!(
-            "Duration lookup complete: {} from junit.xml, {} using default",
-            known_count, default_count
-        );
-
-        // Phase 2: Sort by duration descending
-        println!("\n--- PHASE 2: Sort by Duration (descending) ---");
+        // Sort by duration descending (longest first)
         tests_with_duration.sort_by(|a, b| b.1.cmp(&a.1));
-        println!("Sorted order (longest first):");
-        for (i, (test, duration)) in tests_with_duration.iter().enumerate() {
-            println!("  {}: {:?} - {}", i + 1, duration, test.id());
-        }
 
-        // Phase 3: Initialize batches
+        // Initialize batches
         let num_batches = self.max_parallel.min(tests.len());
-        println!("\n--- PHASE 3: Initialize {} Batches ---", num_batches);
         let mut batches: Vec<Vec<TestInstance<'a>>> =
             (0..num_batches).map(|_| Vec::new()).collect();
         let mut batch_loads: Vec<Duration> = vec![Duration::ZERO; num_batches];
-
-        // Phase 4: LPT assignment (with duplicate prevention)
-        println!("\n--- PHASE 4: LPT Assignment (with duplicate prevention) ---");
 
         // Track which test IDs are in each batch to prevent duplicates
         let mut batch_test_ids: Vec<std::collections::HashSet<String>> = (0..num_batches)
             .map(|_| std::collections::HashSet::new())
             .collect();
 
+        // LPT assignment: assign each test to the batch with minimum load
         for (test, duration) in tests_with_duration {
             let test_id = test.id();
 
             // Find the batch with minimum load that doesn't already have this test
-            let mut candidates: Vec<(usize, Duration)> = batch_loads
+            let target_idx = batch_loads
                 .iter()
                 .enumerate()
                 .filter(|(idx, _)| !batch_test_ids[*idx].contains(test_id))
-                .map(|(idx, load)| (idx, *load))
-                .collect();
+                .min_by_key(|(_, load)| *load)
+                .map(|(idx, _)| idx)
+                // Safe: assertion above ensures enough batches for all test instances
+                .unwrap_or(0);
 
-            // Sort by load (ascending)
-            candidates.sort_by_key(|(_, load)| *load);
-
-            let target_idx = candidates.first().map(|(idx, _)| *idx).expect(
-                "No available batch for test - this should be impossible due to earlier assertion",
-            );
-
-            let old_load = batch_loads[target_idx];
             batches[target_idx].push(test);
             batch_loads[target_idx] += duration;
             batch_test_ids[target_idx].insert(test_id.to_string());
-
-            println!(
-                "  Assign {} ({:?}) -> Batch {} (load: {:?} -> {:?})",
-                test_id, duration, target_idx, old_load, batch_loads[target_idx]
-            );
-
-            // Show current batch loads
-            let loads_str: Vec<String> = batch_loads
-                .iter()
-                .enumerate()
-                .map(|(i, l)| format!("B{}={:?}", i, l))
-                .collect();
-            println!("    Current loads: [{}]", loads_str.join(", "));
         }
 
-        // Phase 5: Sort batches by load (heaviest first)
-        println!("\n--- PHASE 5: Sort Batches (heaviest first) ---");
-        println!("Before sort:");
-        for (i, load) in batch_loads.iter().enumerate() {
-            println!("  Batch {}: {:?} ({} tests)", i, load, batches[i].len());
-        }
-
+        // Sort batches by load (heaviest first) for optimal Modal scheduling
         let mut batches_with_loads: Vec<_> = batches.into_iter().zip(batch_loads).collect();
         batches_with_loads.sort_by(|a, b| b.1.cmp(&a.1));
-
-        println!("After sort (heaviest first for Modal):");
-        for (i, (batch, load)) in batches_with_loads.iter().enumerate() {
-            println!("  Batch {}: {:?} ({} tests)", i, load, batch.len());
-            for test in batch {
-                println!("    - {}", test.id());
-            }
-        }
-
-        // Phase 6: Final summary
-        println!("\n--- PHASE 6: Final Summary ---");
-        let total_duration: Duration = batches_with_loads.iter().map(|(_, l)| *l).sum();
-        let max_duration = batches_with_loads
-            .first()
-            .map(|(_, l)| *l)
-            .unwrap_or(Duration::ZERO);
-        println!("Total work: {:?}", total_duration);
-        println!("Makespan (longest batch): {:?}", max_duration);
-        println!(
-            "Parallelism efficiency: {:.1}%",
-            if max_duration.as_secs_f64() > 0.0 {
-                (total_duration.as_secs_f64() / (max_duration.as_secs_f64() * num_batches as f64))
-                    * 100.0
-            } else {
-                100.0
-            }
-        );
-        println!("============================================================");
-        println!("LPT SCHEDULER END");
-        println!("============================================================\n");
 
         // Extract just the batches, removing empty ones
         batches_with_loads

@@ -409,25 +409,14 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
                     xml_content.len()
                 );
 
-                // CRASH if we got fewer results than unique count (what pytest should produce)
+                // Fail if we got fewer results than unique count (what pytest should produce)
                 if actual_count < unique_count {
-                    error!(
-                        "[BATCH MISMATCH] Sandbox {} has FEWER results than unique tests! unique={}, actual={}",
-                        sandbox_id, unique_count, actual_count
-                    );
-                    error!(
-                        "[BATCH MISMATCH] All test IDs ({}): {:?}",
-                        test_ids.len(),
-                        test_ids
-                    );
-                    error!(
-                        "[BATCH MISMATCH] XML content preview (first 2000 chars):\n{}",
-                        &xml_content[..xml_content.len().min(2000)]
-                    );
-                    panic!(
-                        "BATCH RESULT MISMATCH: Sandbox {} expected {} unique tests but got {} in junit.xml",
-                        sandbox_id, unique_count, actual_count
-                    );
+                    return Err(anyhow::anyhow!(
+                        "Sandbox {} expected {} unique tests but got {} in junit.xml",
+                        sandbox_id,
+                        unique_count,
+                        actual_count
+                    ));
                 }
 
                 if let Some(report) = &self.junit_report {
@@ -456,14 +445,11 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
                 }
             }
             None => {
-                error!(
-                    "[BATCH NO RESULTS] Sandbox {} failed to download junit.xml! {} tests lost!",
-                    sandbox_id, expected_count
-                );
-                panic!(
-                    "BATCH DOWNLOAD FAILED: Sandbox {} could not download junit.xml for {} tests",
-                    sandbox_id, expected_count
-                );
+                return Err(anyhow::anyhow!(
+                    "Sandbox {} failed to download junit.xml for {} tests",
+                    sandbox_id,
+                    expected_count
+                ));
             }
         }
 
