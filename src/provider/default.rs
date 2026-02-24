@@ -211,8 +211,7 @@ impl SandboxProvider for DefaultProvider {
         debug!("Created default sandbox with ID: {}", remote_id);
 
         Ok(DefaultSandbox {
-            id: config.id.clone(),
-            remote_id,
+            id: remote_id,
             connector: self.connector.clone(),
             exec_command: self.config.exec_command.clone(),
             destroy_command: self.config.destroy_command.clone(),
@@ -232,7 +231,7 @@ impl SandboxProvider for DefaultProvider {
 
 /// A sandbox managed through shell command templates.
 ///
-/// The sandbox maintains a `remote_id` (returned by the create command)
+/// The sandbox maintains an `id` (returned by the create command)
 /// that is substituted into the exec and destroy command templates.
 ///
 /// # Reusability
@@ -253,10 +252,8 @@ impl SandboxProvider for DefaultProvider {
 /// results. If the last line of output is valid JSON with `exit_code`,
 /// `stdout`, and `stderr` fields, those are used as the result.
 pub struct DefaultSandbox {
-    /// Local sandbox ID
+    /// Sandbox ID from create command (e.g., Modal's sb-xyz123)
     id: String,
-    /// Remote sandbox ID from create command
-    remote_id: String,
     /// The connector for running commands
     connector: Arc<ShellConnector>,
     /// Command template for execution
@@ -298,14 +295,13 @@ impl DefaultSandbox {
         let escaped_cmd = shell_words::quote(&inner_cmd);
 
         self.exec_command
-            .replace("{sandbox_id}", &self.remote_id)
+            .replace("{sandbox_id}", &self.id)
             .replace("{command}", &escaped_cmd)
     }
 
     /// Build the destroy command with substitutions.
     fn build_destroy_command(&self) -> String {
-        self.destroy_command
-            .replace("{sandbox_id}", &self.remote_id)
+        self.destroy_command.replace("{sandbox_id}", &self.id)
     }
 
     /// Build the download command with substitutions.
@@ -328,7 +324,7 @@ impl DefaultSandbox {
                 .collect::<Vec<_>>()
                 .join(" ");
 
-            cmd.replace("{sandbox_id}", &self.remote_id)
+            cmd.replace("{sandbox_id}", &self.id)
                 .replace("{paths}", &paths_str)
         })
     }
@@ -342,7 +338,7 @@ impl Sandbox for DefaultSandbox {
 
     async fn exec_stream(&self, cmd: &Command) -> ProviderResult<OutputStream> {
         let shell_cmd = self.build_exec_command(cmd);
-        debug!("Streaming on {}: {}", self.remote_id, shell_cmd);
+        debug!("Streaming on {}: {}", self.id, shell_cmd);
         self.connector.run_stream(&shell_cmd).await
     }
 
@@ -369,11 +365,7 @@ impl Sandbox for DefaultSandbox {
             .collect();
 
         if let Some(shell_cmd) = self.build_download_command(&path_pairs) {
-            debug!(
-                "Downloading from {}: {} path(s)",
-                self.remote_id,
-                paths.len()
-            );
+            debug!("Downloading from {}: {} path(s)", self.id, paths.len());
             let result = self.connector.run(&shell_cmd).await?;
 
             if result.exit_code != 0 {
@@ -394,10 +386,7 @@ impl Sandbox for DefaultSandbox {
 
     async fn terminate(&self) -> ProviderResult<()> {
         let shell_cmd = self.build_destroy_command();
-        debug!(
-            "Terminating sandbox {} (remote: {})",
-            self.id, self.remote_id
-        );
+        debug!("Terminating sandbox {}", self.id);
 
         let result = self.connector.run(&shell_cmd).await?;
 
@@ -416,8 +405,7 @@ mod tests {
     /// Creates a DefaultSandbox with given env vars for testing.
     fn sandbox_with_env(env: Vec<(String, String)>) -> DefaultSandbox {
         DefaultSandbox {
-            id: "test-sandbox".to_string(),
-            remote_id: "remote-123".to_string(),
+            id: "sb-test-123".to_string(),
             connector: Arc::new(ShellConnector::new()),
             exec_command: "exec --sandbox {sandbox_id} --cmd {command}".to_string(),
             destroy_command: "destroy {sandbox_id}".to_string(),
@@ -444,9 +432,9 @@ mod tests {
 
         let result = sandbox.build_exec_command(&command);
 
-        // The sandbox_id placeholder should be replaced with the remote_id
+        // The sandbox_id placeholder should be replaced with the id
         assert!(
-            result.contains("remote-123"),
+            result.contains("sb-test-123"),
             "sandbox_id should be substituted: {result}"
         );
         assert!(
@@ -586,9 +574,9 @@ mod tests {
 
         let result = sandbox.build_exec_command(&command);
 
-        // {sandbox_id} should be replaced with the remote_id
+        // {sandbox_id} should be replaced with the id
         assert!(
-            result.contains("remote-123"),
+            result.contains("sb-test-123"),
             "sandbox_id should be substituted: {result}"
         );
         assert!(

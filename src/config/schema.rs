@@ -82,6 +82,13 @@ pub struct OffloadConfig {
     /// parallel tests.
     #[serde(default)]
     pub stream_output: bool,
+
+    /// Project root path on the remote sandbox.
+    ///
+    /// Exported as OFFLOAD_ROOT environment variable in the sandbox.
+    /// Used by test frameworks to compute paths relative to the project root,
+    /// ensuring JUnit XML classnames match the test IDs from discovery.
+    pub sandbox_project_root: String,
 }
 
 fn default_max_parallel() -> usize {
@@ -654,6 +661,7 @@ mod tests {
         let toml = r#"
             [offload]
             max_parallel = 4
+            sandbox_project_root = "/app"
 
             [provider]
             type = "modal"

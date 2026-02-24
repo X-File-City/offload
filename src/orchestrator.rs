@@ -104,12 +104,12 @@ use std::time::Duration;
 
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
 use crate::framework::{TestFramework, TestInstance, TestRecord, TestResult};
 use crate::provider::{OutputLine, Sandbox};
-use crate::report::{MasterJunitReport, print_summary};
+use crate::report::{MasterJunitReport, load_test_durations, print_summary};
 
 pub use pool::SandboxPool;
 pub use runner::{OutputCallback, TestRunner};
@@ -224,6 +224,7 @@ impl RunResult {
 /// use offload::config::{load_config, SandboxConfig};
 /// use offload::provider::local::LocalProvider;
 /// use offload::framework::{TestFramework, pytest::PytestFramework};
+/// use offload::report::JunitFormat;
 ///
 /// #[tokio::main]
 /// async fn main() -> anyhow::Result<()> {
@@ -247,7 +248,7 @@ impl RunResult {
 ///     sandbox_pool.populate(config.offload.max_parallel, &provider, &sandbox_config).await?;
 ///
 ///     // Create orchestrator and run tests
-///     let orchestrator = Orchestrator::new(config, framework, false);
+///     let orchestrator = Orchestrator::new(config, framework, false, JunitFormat::Pytest);
 ///     let result = orchestrator.run_with_tests(&tests, sandbox_pool).await?;
 ///
 ///     std::process::exit(result.exit_code());
@@ -306,12 +307,28 @@ where
     ) -> anyhow::Result<RunResult> {
         let start = std::time::Instant::now();
 
-        // Clear output directory to avoid stale results
+        // Load test durations from previous junit.xml for LPT scheduling
+        let junit_path = self
+            .config
+            .report
+            .output_dir
+            .join(&self.config.report.junit_file);
+        let durations = load_test_durations(&junit_path);
+
+        // Ensure output directory exists (don't clear - junit.xml will be overwritten when ready)
         let output_dir = &self.config.report.output_dir;
-        if output_dir.exists() {
-            std::fs::remove_dir_all(output_dir).ok();
-        }
         std::fs::create_dir_all(output_dir).ok();
+
+        // Clear parts directory from previous run
+        let parts_dir = output_dir.join("junit-parts");
+        if parts_dir.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&parts_dir) {
+                warn!("Failed to clear parts directory: {}", e);
+            } else {
+                debug!("Cleared parts directory: {:?}", parts_dir);
+            }
+        }
+        std::fs::create_dir_all(&parts_dir).ok();
 
         if tests.is_empty() {
             warn!("No tests to run");
@@ -354,9 +371,36 @@ where
 
         let skipped_count = tests.len() - tests.iter().filter(|t| !t.skipped).count();
 
-        // Schedule tests into batches using random distribution
+        // Schedule tests using LPT (Longest Processing Time First) if we have durations,
+        // otherwise fall back to round-robin with a warning and user confirmation.
         let scheduler = Scheduler::new(self.config.offload.max_parallel);
-        let batches = scheduler.schedule(&tests_to_run);
+        let batches = if durations.is_empty() {
+            warn!(
+                "No historical test durations found at {}. Falling back to round-robin scheduling. \
+                 Run tests once to generate junit.xml for optimized LPT scheduling.",
+                junit_path.display()
+            );
+            eprintln!();
+            eprintln!("WARNING: No junit.xml found at {}", junit_path.display());
+            eprintln!(
+                "Using round-robin scheduling instead of LPT (suboptimal for parallel execution)."
+            );
+            eprintln!("Run tests once to generate junit.xml for optimized scheduling.");
+            eprintln!();
+            eprint!("Press Enter to continue with round-robin scheduling...");
+            let _ = std::io::Write::flush(&mut std::io::stderr());
+            let mut input = String::new();
+            let _ = std::io::stdin().read_line(&mut input);
+            scheduler.schedule(&tests_to_run)
+        } else {
+            debug!(
+                "Using LPT scheduling with {} historical durations from {}",
+                durations.len(),
+                junit_path.display()
+            );
+            // Default duration for unknown tests: 1 second (conservative estimate)
+            scheduler.schedule_lpt(&tests_to_run, &durations, std::time::Duration::from_secs(1))
+        };
 
         // Take sandboxes from pool - must match batch count
         let sandboxes = sandbox_pool.take_all();
@@ -368,11 +412,21 @@ where
             batches.len()
         );
 
-        debug!(
-            "Scheduled {} tests into {} batches with {} sandboxes",
+        // Log batch distribution
+        info!(
+            "[ORCHESTRATOR] Scheduled {} tests into {} batches with {} sandboxes",
             tests_to_run.len(),
             batches.len(),
             sandboxes.len()
+        );
+        for (i, batch) in batches.iter().enumerate() {
+            info!("[ORCHESTRATOR] Batch {}: {} tests", i, batch.len());
+        }
+        let total_in_batches: usize = batches.iter().map(|b| b.len()).sum();
+        info!(
+            "[ORCHESTRATOR] Total tests across all batches: {} (should equal {})",
+            total_in_batches,
+            tests_to_run.len()
         );
 
         // Shared JUnit report for accumulating results and early stopping
@@ -402,18 +456,26 @@ where
                 scope.spawn(async move {
                     // Early exit if all tests have already passed
                     if all_passed.load(Ordering::SeqCst) {
-                        debug!("Batch {} skipped - all tests have passed", batch_idx);
+                        let test_ids: Vec<_> = batch.iter().map(|t| t.id()).collect();
+                        info!(
+                            "EARLY STOP: Skipping batch {} ({} tests) - all tests already passed",
+                            batch_idx,
+                            batch.len()
+                        );
+                        debug!("Skipped tests: {:?}", test_ids);
                         sandboxes_for_cleanup.lock().await.push(sandbox);
                         return;
                     }
 
+                    let parts_dir = config.report.output_dir.join("junit-parts");
                     let mut runner = TestRunner::new(
                         sandbox,
                         framework,
                         Duration::from_secs(config.offload.test_timeout_secs),
                     )
                     .with_cancellation_token(cancellation_token.clone())
-                    .with_junit_report(Arc::clone(&junit_report));
+                    .with_junit_report(Arc::clone(&junit_report))
+                    .with_parts_dir(parts_dir);
 
                     // Enable output callback only in verbose mode
                     if config.offload.stream_output && verbose {
@@ -440,9 +502,10 @@ where
                                 && report.all_passed()
                                 && !all_passed.load(Ordering::SeqCst)
                             {
-                                debug!(
-                                    "All {} tests have passed, signaling early stop",
-                                    total_tests_to_run
+                                info!(
+                                    "EARLY STOP TRIGGERED: All {} tests have passed after batch {} completed. Cancelling remaining batches.",
+                                    total_tests_to_run,
+                                    batch_idx
                                 );
                                 all_passed.store(true, Ordering::SeqCst);
                                 cancellation_token.cancel();
@@ -469,11 +532,35 @@ where
 
         // Aggregate results from TestRecords (handles parallel retries automatically)
         // Get results from the shared JUnit report
-        let (passed, failed, flaky_count) = if let Ok(report) = junit_report.lock() {
-            report.summary()
+        info!("[ORCHESTRATOR] All batches completed, aggregating results...");
+        let (passed, failed, flaky_count, total_in_report) = if let Ok(report) = junit_report.lock()
+        {
+            let summary = report.summary();
+            let total = report.total_count();
+            info!(
+                "[ORCHESTRATOR] Master report: {} total unique tests, {} passed, {} failed, {} flaky",
+                total, summary.0, summary.1, summary.2
+            );
+            (summary.0, summary.1, summary.2, total)
         } else {
-            (0, 0, 0)
+            (0, 0, 0, 0)
         };
+
+        // Check for missing tests
+        let expected_unique_tests = tests.iter().filter(|t| !t.skipped).count();
+        if total_in_report < expected_unique_tests {
+            error!(
+                "[ORCHESTRATOR MISMATCH] Expected {} unique tests but only {} in report! {} TESTS MISSING!",
+                expected_unique_tests,
+                total_in_report,
+                expected_unique_tests - total_in_report
+            );
+        } else {
+            info!(
+                "[ORCHESTRATOR] All {} expected tests accounted for in report",
+                expected_unique_tests
+            );
+        }
 
         // Write the JUnit report to file
         if self.config.report.junit {
@@ -489,17 +576,19 @@ where
             }
         }
 
-        // Total tests from discovery, results from JUnit XML
+        // Use JUnit report as source of truth for all counts
         let total_discovered = tests.iter().filter(|t| !t.skipped).count();
-        let tests_with_results = if let Ok(report) = junit_report.lock() {
+        let total_in_junit = if let Ok(report) = junit_report.lock() {
             report.total_count()
         } else {
             0
         };
-        let not_run = total_discovered.saturating_sub(tests_with_results);
+        let not_run = total_discovered.saturating_sub(total_in_junit);
 
+        // Use the JUnit total as the authoritative count (passed + failed + flaky = total)
+        // This ensures passed can never exceed total
         let run_result = RunResult {
-            total_tests: total_discovered,
+            total_tests: total_in_junit,
             passed: passed + flaky_count, // Flaky tests count as passed
             failed,
             skipped: skipped_count,
