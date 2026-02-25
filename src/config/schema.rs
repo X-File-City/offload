@@ -523,17 +523,6 @@ pub struct CargoFrameworkConfig {
     /// Default: false
     #[serde(default)]
     pub include_ignored: bool,
-
-    /// Format string for constructing test IDs from JUnit XML attributes.
-    ///
-    /// Default: `"{classname} {name}"` - nextest uses classname for binary name
-    /// and name for the test function.
-    #[serde(default = "default_cargo_test_id_format")]
-    pub test_id_format: String,
-}
-
-fn default_cargo_test_id_format() -> String {
-    "{classname} {name}".to_string()
 }
 
 /// Configuration for generic/custom test framework.
@@ -595,6 +584,16 @@ pub struct DefaultFrameworkConfig {
 
     /// Working directory for running test commands.
     pub working_dir: Option<PathBuf>,
+
+    /// Format string for constructing test IDs from JUnit XML attributes.
+    ///
+    /// Available placeholders:
+    /// - `{name}` - the testcase name attribute
+    /// - `{classname}` - the testcase classname attribute
+    ///
+    /// Default: `"{name}"` - uses the testcase name attribute directly.
+    #[serde(default = "default_test_id_format")]
+    pub test_id_format: String,
 }
 
 /// Configuration for test result reporting.

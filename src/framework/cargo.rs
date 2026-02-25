@@ -240,7 +240,9 @@ impl TestFramework for CargoFramework {
         result_file: Option<&str>,
     ) -> FrameworkResult<Vec<TestResult>> {
         if let Some(xml) = result_file {
-            parse_junit_xml(xml, &self.config.test_id_format)
+            // Cargo nextest always uses "{classname} {name}" format where
+            // classname is the binary name and name is the test function path
+            parse_junit_xml(xml, "{classname} {name}")
         } else {
             Ok(Vec::new())
         }
