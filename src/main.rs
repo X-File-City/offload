@@ -8,7 +8,11 @@ use clap::{Parser, Subcommand};
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
-use offload::config::{self, FrameworkConfig, ProviderConfig, SandboxConfig};
+use offload::config::{
+    self, CargoFrameworkConfig, Config, DefaultFrameworkConfig, DefaultProviderConfig,
+    FrameworkConfig, GroupConfig, LocalProviderConfig, OffloadConfig, ProviderConfig,
+    PytestFrameworkConfig, ReportConfig, SandboxConfig,
+};
 use offload::framework::{
     TestFramework, TestRecord, cargo::CargoFramework, default::DefaultFramework,
     pytest::PytestFramework,
@@ -520,23 +524,21 @@ fn validate_config(config_path: &Path) -> Result<()> {
 
 fn init_config(provider: &str, framework: &str) -> Result<()> {
     let provider_config = match provider {
-        "local" => {
-            r#"[provider]
-type = "local"
-working_dir = "."
-shell = "/bin/sh""#
-        }
-        "default" => {
-            r#"[provider]
-type = "default"
-# Your script that handles everything: spin up cloud compute, run tests, return results
-# Test command is appended to this
-execute_command = "./scripts/run-remote.sh"
-# Optional: sync code before running
-setup_command = "./scripts/sync-code.sh"
-# Timeout for remote execution
-timeout_secs = 3600"#
-        }
+        "local" => ProviderConfig::Local(LocalProviderConfig {
+            working_dir: Some(PathBuf::from(".")),
+            ..Default::default()
+        }),
+        "default" => ProviderConfig::Default(DefaultProviderConfig {
+            create_command: "./scripts/create-sandbox.sh".into(),
+            exec_command: "./scripts/exec-sandbox.sh {sandbox_id} {command}".into(),
+            destroy_command: "./scripts/destroy-sandbox.sh {sandbox_id}".into(),
+            prepare_command: None,
+            download_command: None,
+            working_dir: None,
+            timeout_secs: 3600,
+            copy_dirs: vec![],
+            env: HashMap::new(),
+        }),
         _ => {
             eprintln!("Unknown provider: {}. Use: local, default", provider);
             std::process::exit(1);
@@ -544,22 +546,23 @@ timeout_secs = 3600"#
     };
 
     let framework_config = match framework {
-        "pytest" => {
-            r#"[framework]
-type = "pytest"
-paths = ["tests"]
-python = "python""#
-        }
-        "cargo" => {
-            r#"[framework]
-type = "cargo""#
-        }
-        "default" => {
-            r#"[framework]
-type = "default"
-discover_command = "echo test1 test2"
-run_command = "echo Running {tests}""#
-        }
+        "pytest" => FrameworkConfig::Pytest(PytestFrameworkConfig {
+            paths: vec![PathBuf::from("tests")],
+            python: "python".into(),
+            test_id_format: "{name}".into(),
+            ..Default::default()
+        }),
+        "cargo" => FrameworkConfig::Cargo(CargoFrameworkConfig {
+            test_id_format: "{classname} {name}".into(),
+            ..Default::default()
+        }),
+        "default" => FrameworkConfig::Default(DefaultFrameworkConfig {
+            discover_command: "echo test1 test2".into(),
+            run_command: "echo Running {tests}".into(),
+            test_id_format: "{name}".into(),
+            result_file: None,
+            working_dir: None,
+        }),
         _ => {
             eprintln!(
                 "Unknown framework: {}. Use: pytest, cargo, default",
@@ -569,35 +572,22 @@ run_command = "echo Running {tests}""#
         }
     };
 
-    // Determine appropriate test_id_format based on framework
-    let test_id_format = match framework {
-        "cargo" => "{classname} {name}",
-        _ => "{name}",
+    let config = Config {
+        offload: OffloadConfig {
+            max_parallel: 10,
+            test_timeout_secs: 900,
+            working_dir: None,
+            stream_output: false,
+            sandbox_project_root: "/app".to_string(),
+        },
+        provider: provider_config,
+        framework: framework_config,
+        groups: HashMap::from([("default".to_string(), GroupConfig { retry_count: 0 })]),
+        report: ReportConfig::default(),
     };
 
-    let config = format!(
-        r#"# offload configuration file
-
-test_id_format = "{test_id_format}"
-
-[offload]
-max_parallel = 10
-test_timeout_secs = 900
-sandbox_project_root = "/app"
-
-{provider_config}
-
-{framework_config}
-
-[groups.default]
-retry_count = 0
-
-[report]
-output_dir = "test-results"
-junit = true
-junit_file = "junit.xml"
-"#,
-    );
+    let toml_content = toml::to_string_pretty(&config)?;
+    let output = format!("# offload configuration file\n\n{}", toml_content);
 
     let path = PathBuf::from("offload.toml");
     if path.exists() {
@@ -605,7 +595,7 @@ junit_file = "junit.xml"
         std::process::exit(1);
     }
 
-    std::fs::write(&path, config)?;
+    std::fs::write(&path, output)?;
     println!("Created offload.toml");
     println!();
     println!("Edit the configuration as needed, then run:");
