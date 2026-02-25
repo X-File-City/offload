@@ -104,6 +104,7 @@ pub fn load_config(path: &Path) -> Result<Config> {
 /// let config = load_config_str(r#"
 ///     [offload]
 ///     max_parallel = 4
+///     sandbox_project_root = "/app"
 ///
 ///     [provider]
 ///     type = "local"
