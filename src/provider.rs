@@ -79,7 +79,6 @@
 
 pub mod default;
 pub mod local;
-pub mod modal;
 
 use std::path::Path;
 use std::pin::Pin;

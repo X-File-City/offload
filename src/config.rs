@@ -219,7 +219,6 @@ fn expand_env_hashmap(env: &mut HashMap<String, String>) -> Result<()> {
 fn expand_provider_env(provider: &mut ProviderConfig) -> Result<()> {
     match provider {
         ProviderConfig::Local(config) => expand_env_hashmap(&mut config.env),
-        ProviderConfig::Modal(config) => expand_env_hashmap(&mut config.env),
         ProviderConfig::Default(config) => expand_env_hashmap(&mut config.env),
     }
 }

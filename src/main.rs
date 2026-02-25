@@ -14,7 +14,7 @@ use offload::framework::{
     pytest::PytestFramework,
 };
 use offload::orchestrator::{Orchestrator, SandboxPool};
-use offload::provider::{default::DefaultProvider, local::LocalProvider, modal::ModalProvider};
+use offload::provider::{default::DefaultProvider, local::LocalProvider};
 
 /// A directory copy directive: local path -> sandbox path
 #[derive(Debug, Clone)]
@@ -201,7 +201,6 @@ async fn run_tests(
     if !cli_env.is_empty() {
         match &mut config.provider {
             ProviderConfig::Local(cfg) => cfg.env.extend(cli_env),
-            ProviderConfig::Modal(cfg) => cfg.env.extend(cli_env),
             ProviderConfig::Default(cfg) => cfg.env.extend(cli_env),
         }
     }
@@ -377,48 +376,6 @@ async fn run_tests(
             )
             .await?
         }
-        (ProviderConfig::Modal(p_cfg), FrameworkConfig::Pytest(f_cfg)) => {
-            let working_dir = config.offload.working_dir.clone();
-            let provider = ModalProvider::from_config(p_cfg.clone(), working_dir)
-                .context("Failed to create Modal provider")?;
-            run_all_tests(
-                &config,
-                &all_tests,
-                provider,
-                PytestFramework::new(f_cfg.clone()),
-                &copy_dirs,
-                verbose,
-            )
-            .await?
-        }
-        (ProviderConfig::Modal(p_cfg), FrameworkConfig::Cargo(f_cfg)) => {
-            let working_dir = config.offload.working_dir.clone();
-            let provider = ModalProvider::from_config(p_cfg.clone(), working_dir)
-                .context("Failed to create Modal provider")?;
-            run_all_tests(
-                &config,
-                &all_tests,
-                provider,
-                CargoFramework::new(f_cfg.clone()),
-                &copy_dirs,
-                verbose,
-            )
-            .await?
-        }
-        (ProviderConfig::Modal(p_cfg), FrameworkConfig::Default(f_cfg)) => {
-            let working_dir = config.offload.working_dir.clone();
-            let provider = ModalProvider::from_config(p_cfg.clone(), working_dir)
-                .context("Failed to create Modal provider")?;
-            run_all_tests(
-                &config,
-                &all_tests,
-                provider,
-                DefaultFramework::new(f_cfg.clone()),
-                &copy_dirs,
-                verbose,
-            )
-            .await?
-        }
     };
 
     if exit_code != 0 {
@@ -524,7 +481,6 @@ fn validate_config(config_path: &Path) -> Result<()> {
 
             let provider_name = match &config.provider {
                 ProviderConfig::Local(_) => "local",
-                ProviderConfig::Modal(_) => "modal",
                 ProviderConfig::Default(_) => "default",
             };
             println!("  Provider: {}", provider_name);
