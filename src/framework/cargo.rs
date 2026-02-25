@@ -217,15 +217,16 @@ impl TestFramework for CargoFramework {
             cmd = cmd.arg("--run-ignored").arg("only");
         }
 
-        // Build filter expression: test(=test1) | test(=test2) | ...
-        // Test IDs are in format "binary_name test::path", extract just the test path for filtering
+        // Build filter expression: (binary(=b1) & test(=t1)) | (binary(=b2) & test(=t2)) | ...
+        // Test IDs are in format "binary_name test::path", we need both to uniquely identify tests
         let filter_expr: String = tests
             .iter()
             .map(|t| {
                 let id = t.id();
-                // Extract test path (part after first space, or whole ID if no space)
-                let test_path = id.split_once(' ').map(|(_, path)| path).unwrap_or(id);
-                format!("test(={})", test_path)
+                let (binary, test_path) = id
+                    .split_once(' ')
+                    .expect("cargo test IDs must be in 'binary test_path' format");
+                format!("(binary(={}) & test(={}))", binary, test_path)
             })
             .collect::<Vec<_>>()
             .join(" | ");
