@@ -65,14 +65,7 @@ pub struct Config {
     /// # For pytest when classname needs combining
     /// test_id_format = "{classname}::{name}"
     /// ```
-    ///
-    /// Default: `"{name}"` (uses testcase name as-is)
-    #[serde(default = "default_test_id_format")]
     pub test_id_format: String,
-}
-
-fn default_test_id_format() -> String {
-    "{name}".to_string()
 }
 
 /// Core offload execution settings.
@@ -590,9 +583,6 @@ pub struct DefaultFrameworkConfig {
     /// Available placeholders:
     /// - `{name}` - the testcase name attribute
     /// - `{classname}` - the testcase classname attribute
-    ///
-    /// Default: `"{name}"` - uses the testcase name attribute directly.
-    #[serde(default = "default_test_id_format")]
     pub test_id_format: String,
 }
 
@@ -698,6 +688,8 @@ mod tests {
     #[test]
     fn test_modal_provider_with_dockerfile() -> Result<(), Box<dyn std::error::Error>> {
         let toml = r#"
+            test_id_format = "{name}"
+
             [offload]
             max_parallel = 4
             sandbox_project_root = "/app"
