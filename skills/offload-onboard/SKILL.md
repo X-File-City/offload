@@ -362,9 +362,11 @@ Report the results as a table to the user and set the optimal values in `offload
 
 6. Preserve the existing tone and formatting of the file. If it uses a digraph, bullet lists, or a specific heading style, match that style. Do not restructure or reformat existing content.
 
-### Step 12: Set Up CI Job (if applicable)
+### Step 12: Set Up CI Job (optional)
 
-Detect the CI system from the repository:
+Ask the user if they want to set up a CI job to run offload tests automatically on push/PR. If they decline, skip Steps 12 and 13.
+
+If they want CI, detect the CI system from the repository:
 - `.github/workflows/` → GitHub Actions
 - `.gitlab-ci.yml` → GitLab CI
 - `Jenkinsfile` → Jenkins
