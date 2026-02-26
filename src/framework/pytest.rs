@@ -21,11 +21,11 @@
 //!
 //! # Markers
 //!
-//! pytest markers are extracted and stored in [`TestCase::markers`].
+//! pytest markers are extracted and stored in [`TestRecord::markers`].
 //! The `markers` configuration option filters tests during discovery:
 //!
 //! ```toml
-//! [groups.python]
+//! [framework]
 //! type = "pytest"
 //! markers = "not slow and not integration"
 //! ```

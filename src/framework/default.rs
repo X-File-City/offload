@@ -78,21 +78,22 @@
 //! # Example: Jest
 //!
 //! ```toml
-//! [groups.javascript]
+//! [framework]
 //! type = "default"
-//! discover_command = "jest --listTests --json | jq -r '.[]' | xargs -I{} basename {}"
+//! discover_command = "jest --listTests --json | jq -r '.[]'"
 //! run_command = "jest {tests} --ci --reporters=jest-junit"
 //! result_file = "junit.xml"
+//! test_id_format = "{name}"
 //! ```
 //!
 //! # Example: Go
 //!
 //! ```toml
-//! [groups.go]
+//! [framework]
 //! type = "default"
 //! discover_command = "go test -list '.*' ./... 2>/dev/null | grep -E '^Test'"
 //! run_command = "go test -v -run '^({tests})$' ./..."
-//! # Note: Go needs go-junit-report for JUnit XML output
+//! test_id_format = "{classname}/{name}"
 //! ```
 
 use std::path::PathBuf;

@@ -281,6 +281,41 @@ retry_count = 1
 output_dir = "test-results"
 ```
 
+### Default Framework on Modal (`offload-modal.toml` from mng)
+
+```toml
+[offload]
+max_parallel = 40
+test_timeout_secs = 60
+stream_output = true
+sandbox_project_root = "/code/mng"
+
+[provider]
+type = "default"
+prepare_command = "uv run @modal_sandbox.py prepare --cached libs/mng/imbue/mng/resources/Dockerfile"
+create_command = "uv run @modal_sandbox.py create {image_id}"
+exec_command = "uv run @modal_sandbox.py exec {sandbox_id} {command}"
+destroy_command = "uv run @modal_sandbox.py destroy {sandbox_id}"
+download_command = "uv run @modal_sandbox.py download {sandbox_id} {paths}"
+timeout_secs = 600
+
+[framework]
+type = "default"
+discover_command = "uv sync --all-packages && uv run pytest --collect-only -q -m 'not acceptance and not release' 2>/dev/null | grep '::'"
+run_command = "cd /code/mng && uv sync --all-packages && uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= --junitxml={result_file} {tests}"
+test_id_format = "{name}"
+
+[groups.all]
+retry_count = 0
+
+[report]
+output_dir = "test-results"
+junit = true
+junit_file = "junit.xml"
+```
+
+This demonstrates using the `default` framework with custom pytest discovery and execution on Modal, which is common for Python monorepos.
+
 ## Bundled Scripts
 
 Commands in configuration can reference bundled scripts using `@filename.ext` syntax. For example, `uv run @modal_sandbox.py create {image_id}` references the bundled `modal_sandbox.py` script. Scripts are extracted to a cache directory on first use.

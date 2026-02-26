@@ -23,7 +23,7 @@
 //! For workspaces, specify the package to test:
 //!
 //! ```toml
-//! [groups.rust]
+//! [framework]
 //! type = "cargo"
 //! package = "my-crate"
 //! features = ["test-utils"]

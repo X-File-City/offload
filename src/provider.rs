@@ -38,6 +38,7 @@
 //! |----------|--------|-------------|
 //! | Local | [`local`] | Run tests as local child processes |
 //! | Default | [`default`] | Run tests via custom shell commands |
+//! | Modal | [`modal`] | Run tests on Modal cloud sandboxes |
 //!
 //! # Implementing a Custom Provider
 //!

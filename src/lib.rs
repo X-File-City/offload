@@ -25,6 +25,7 @@
 //!
 //! - [`provider::local::LocalProvider`] - Run tests as local processes
 //! - [`provider::default::DefaultProvider`] - Run tests using custom shell commands
+//! - [`provider::modal::ModalProvider`] - Run tests on Modal cloud sandboxes
 //!
 //! ### Framework ([`framework`])
 //!
