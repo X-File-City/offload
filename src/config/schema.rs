@@ -131,8 +131,8 @@ fn default_test_timeout() -> u64 {
 /// | Type | Description | Use Case |
 /// |------|-------------|----------|
 /// | `local` | Local processes | Development, CI without containers |
-/// | `modal` | Modal cloud sandboxes | Ephemeral cloud execution with Modal |
 /// | `default` | Custom shell commands | Cloud providers (Modal, Lambda, etc.) |
+/// | `modal` | Modal sandboxes | Modal cloud execution with simplified config |
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ProviderConfig {
@@ -142,17 +142,18 @@ pub enum ProviderConfig {
     /// Useful for development and CI environments without containerization.
     Local(LocalProviderConfig),
 
-    /// Run tests using Modal cloud sandboxes.
-    ///
-    /// Provides first-class integration with Modal for ephemeral compute.
-    Modal(ModalProviderConfig),
-
     /// Run tests using custom shell commands.
     ///
     /// Defines create/exec/destroy commands for lifecycle management.
     /// Use this to integrate with cloud providers like Modal, AWS Lambda,
     /// or any custom execution environment.
     Default(DefaultProviderConfig),
+
+    /// Run tests on Modal sandboxes with simplified configuration.
+    ///
+    /// Uses the DefaultSandbox implementation internally but exposes
+    /// high-level configuration options instead of raw command strings.
+    Modal(ModalProviderConfig),
 }
 
 /// Configuration for the local process provider.
@@ -197,58 +198,60 @@ pub struct LocalProviderConfig {
 fn default_shell() -> String {
     "/bin/sh".to_string()
 }
-/// Configuration for the Modal cloud provider.
+
+/// Configuration for Modal sandbox provider.
 ///
-/// Modal provides ephemeral cloud sandboxes with first-class Docker support.
-/// This provider integrates directly with Modal APIs without requiring
-/// shell command wrappers.
+/// This provider runs tests on Modal sandboxes using a simplified configuration.
+/// Instead of specifying raw shell commands, you provide high-level options
+/// and the provider generates the appropriate Modal CLI commands internally.
 ///
-/// # Example: Custom Dockerfile
+/// # Example
 ///
 /// ```toml
 /// [provider]
 /// type = "modal"
-/// app_name = "offload-sandbox"
-/// dockerfile = ".devcontainer/Dockerfile"
-/// working_dir = "/workspace"
-/// timeout_secs = 600
+/// dockerfile = "./Dockerfile"
+/// include_cwd = true
+/// copy_dirs = ["./src:/app/src", "./tests:/app/tests"]
 /// ```
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///
+/// # Example: Minimal Configuration
+///
+/// ```toml
+/// [provider]
+/// type = "modal"
+/// # Uses default Modal image, no additional files copied
+/// ```
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ModalProviderConfig {
-    /// Modal app name for the sandbox.
+    /// Path to a Dockerfile for building the sandbox image.
     ///
-    /// This name identifies the Modal application and appears in the Modal
-    /// dashboard. Should be descriptive and unique within your workspace.
+    /// If provided, Modal will build an image from this Dockerfile.
+    /// If not specified, a default Modal image is used.
+    #[serde(default)]
+    pub dockerfile: Option<String>,
+
+    /// Whether to include the current working directory in the image.
+    ///
+    /// When enabled, the entire current working directory is copied
+    /// into the sandbox image during preparation.
+    ///
+    /// Default: false
+    #[serde(default)]
+    pub include_cwd: bool,
+
+    /// Directories to copy into the sandbox image.
+    ///
+    /// Each entry is a string in the format "local_path:remote_path".
+    /// These directories are baked into the image during preparation,
+    /// making sandbox creation faster.
     ///
     /// # Example
     /// ```toml
-    /// app_name = "offload-sandbox"
+    /// copy_dirs = ["./src:/app/src", "./tests:/app/tests"]
     /// ```
-    pub app_name: String,
-
-    /// Image configuration for the sandbox.
-    ///
-    /// A path to the Dockerfile on which this image is based
-    pub dockerfile: String,
-
-    /// Working directory inside the sandbox.
-    ///
-    /// Test commands will execute from this directory.
-    pub working_dir: Option<PathBuf>,
-
-    /// Timeout for sandbox operations in seconds.
-    ///
-    /// Applies to both sandbox creation and test execution.
-    ///
-    /// Default: 3600 (1 hour)
-    #[serde(default = "default_remote_timeout")]
-    pub timeout_secs: u64,
-
-    /// Environment variables to set for all test processes.
-    ///
-    /// These are merged with (and override) the current environment.
     #[serde(default)]
-    pub env: HashMap<String, String>,
+    pub copy_dirs: Vec<String>,
 }
 
 /// Configuration for custom remote execution provider.
@@ -672,45 +675,4 @@ pub struct SandboxConfig {
     ///
     /// Each tuple is (local_path, remote_path).
     pub copy_dirs: Vec<(std::path::PathBuf, std::path::PathBuf)>,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_modal_provider_with_dockerfile() -> Result<(), Box<dyn std::error::Error>> {
-        let toml = r#"
-            test_id_format = "{name}"
-
-            [offload]
-            max_parallel = 4
-            sandbox_project_root = "/app"
-
-            [provider]
-            type = "modal"
-            app_name = "offload-sandbox"
-            dockerfile = ".devcontainer/Dockerfile"
-            timeout_secs = 600
-
-            [groups.test]
-            type = "pytest"
-        "#;
-
-        let config: Config = toml::from_str(toml)?;
-
-        assert!(
-            matches!(&config.provider, ProviderConfig::Modal(_)),
-            "Expected Modal provider"
-        );
-
-        if let ProviderConfig::Modal(modal_config) = &config.provider {
-            assert_eq!(modal_config.app_name, "offload-sandbox");
-            assert_eq!(modal_config.timeout_secs, 600);
-            assert!(modal_config.working_dir.is_none());
-            assert_eq!(&modal_config.dockerfile, ".devcontainer/Dockerfile");
-        }
-
-        Ok(())
-    }
 }
