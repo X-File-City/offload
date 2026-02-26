@@ -19,7 +19,7 @@ A flexible parallel test runner written in Rust with pluggable execution provide
 From crates.io:
 
 ```bash
-cargo install offload@0.3.3
+cargo install offload@0.3.4
 ```
 
 From source:
@@ -47,6 +47,50 @@ cargo install --path .
 
 **For the default framework:**
 - Whatever tools your `discover_command` and `run_command` invoke
+
+## Contracts and Guarantees
+
+Offload relies on a contract between test discovery, execution, and result reporting. Understanding these contracts is essential when using the `default` framework or debugging test ID mismatches.
+
+### Discovery Contract
+
+Each group triggers its own discovery call. The framework must output **one test ID per line** to stdout. These IDs become the canonical identifiers for the entire run.
+
+- **pytest**: Runs `{python} -m pytest --collect-only -q` locally. Output format: `path/to/test.py::TestClass::test_method`. Group `filters` are appended as extra pytest args (e.g. `-m 'not slow'`). If filters are provided, they take precedence over the framework-level `markers` config.
+- **cargo**: Runs `cargo nextest list --message-format json` locally. Test IDs are formatted as `{binary_id} {test_name}`. Group `filters` are appended as extra nextest args.
+- **default**: Runs `discover_command` through `sh -c`. The `{filters}` placeholder is replaced with the group's filter string (or empty string). Output must be one test ID per line; lines starting with `#` are ignored.
+
+### Test ID Matching Contract
+
+Offload matches discovered test IDs to JUnit XML results using `test_id_format`. This is the most common source of "Not Run" errors.
+
+- The `test_id_format` field controls how JUnit XML `name` and `classname` attributes are combined into a test ID. For example, `"{name}"` uses just the name attribute; `"{classname} {name}"` joins them with a space.
+- The JUnit `name` attribute produced by the test runner **must match** the test ID from discovery after applying `test_id_format`. If they don't match, offload reports the test as "Not Run".
+- For pytest: the default `test_id_format` is `"{name}"`. The `_set_junit_test_id` conftest fixture writes the full nodeid into the JUnit `name` attribute so it matches the `pytest --collect-only` output.
+- For cargo/nextest: the default `test_id_format` is `"{classname} {name}"` where classname is the binary ID and name is the test function.
+
+### Result Reporting Contract
+
+After execution, offload collects results via one of two mechanisms:
+
+- **JUnit XML** (recommended): The test command writes a JUnit XML file. For the `default` framework, configure `result_file` with the path and use `{result_file}` in `run_command`. For pytest and cargo, offload generates the `--junitxml` / nextest JUnit flags automatically.
+- **Exit code fallback** (default framework only): If no `result_file` is configured, offload infers pass/fail from the command's exit code. This loses per-test granularity — all tests are reported under a synthetic `all_tests` ID, and flaky test detection will not work.
+
+### Retry and Flaky Test Contract
+
+- Tests are retried up to `retry_count` times (configured per group).
+- Retries run in parallel across available sandboxes.
+- If **any** retry attempt passes, the test is reported as passed.
+- A test that passes after a failure is marked as **flaky** (exit code 2).
+- Without JUnit XML result files, retries cannot identify individual test failures and may behave incorrectly.
+
+### Exit Code Contract
+
+| Code | Meaning |
+|------|---------|
+| 0 | All tests passed |
+| 1 | One or more tests failed, or tests were not run |
+| 2 | All tests passed, but some were flaky (passed only on retry) |
 
 ## Quick Start
 
