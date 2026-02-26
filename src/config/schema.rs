@@ -433,9 +433,9 @@ pub struct GroupConfig {
     /// - pytest: `"-m not acceptance"` or `"-k test_name"`
     /// - cargo: `"--ignored"` or specific test patterns
     ///
-    /// Default: None (no additional filters)
+    /// An empty string means no filtering.
     #[serde(default)]
-    pub filters: Option<String>,
+    pub filters: String,
 }
 
 /// Test framework configuration specifying how tests are found and run.
@@ -796,7 +796,7 @@ mod tests {
                 "default".to_string(),
                 GroupConfig {
                     retry_count: 0,
-                    filters: None,
+                    filters: String::new(),
                 },
             )]),
             report: ReportConfig::default(),
@@ -824,7 +824,7 @@ mod tests {
                 "default".to_string(),
                 GroupConfig {
                     retry_count: 0,
-                    filters: None,
+                    filters: String::new(),
                 },
             )]),
             report: ReportConfig::default(),
@@ -855,7 +855,7 @@ mod tests {
                 "default".to_string(),
                 GroupConfig {
                     retry_count: 0,
-                    filters: None,
+                    filters: String::new(),
                 },
             )]),
             report: ReportConfig::default(),

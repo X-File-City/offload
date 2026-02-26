@@ -218,7 +218,7 @@ async fn run_tests(
             "default".to_string(),
             GroupConfig {
                 retry_count: 0,
-                filters: None,
+                filters: String::new(),
             },
         )]
     } else {
@@ -230,7 +230,11 @@ async fn run_tests(
     };
 
     for (group_name, group_cfg) in &groups_to_process {
-        let filters = group_cfg.filters.as_deref();
+        let filters = if group_cfg.filters.is_empty() {
+            None
+        } else {
+            Some(group_cfg.filters.as_str())
+        };
 
         let tests = match &config.framework {
             FrameworkConfig::Pytest(cfg) => {
@@ -505,7 +509,7 @@ async fn collect_tests(config_path: &Path, format: &str) -> Result<()> {
             "default".to_string(),
             GroupConfig {
                 retry_count: 0,
-                filters: None,
+                filters: String::new(),
             },
         )]
     } else {
@@ -520,7 +524,11 @@ async fn collect_tests(config_path: &Path, format: &str) -> Result<()> {
     let mut all_tests: Vec<TestRecord> = Vec::new();
 
     for (group_name, group_cfg) in &groups_to_process {
-        let filters = group_cfg.filters.as_deref();
+        let filters = if group_cfg.filters.is_empty() {
+            None
+        } else {
+            Some(group_cfg.filters.as_str())
+        };
 
         let tests = match &config.framework {
             FrameworkConfig::Pytest(cfg) => {
@@ -687,7 +695,7 @@ fn init_config(provider: &str, framework: &str) -> Result<()> {
             "default".to_string(),
             GroupConfig {
                 retry_count: 0,
-                filters: None,
+                filters: String::new(),
             },
         )]),
         report: ReportConfig::default(),
