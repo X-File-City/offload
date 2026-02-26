@@ -193,28 +193,39 @@ impl TestFramework for CargoFramework {
         Ok(tests)
     }
 
-    fn produce_test_execution_command(&self, tests: &[TestInstance]) -> Command {
-        // JUnit output should be configured via .config/nextest.toml to /tmp/junit.xml
-        // where offload's runner expects it
-        let mut cmd = Command::new("cargo")
-            .arg("nextest")
-            .arg("run")
-            .arg("--no-fail-fast");
+    fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command {
+        // Nextest configures JUnit output via config file, not CLI flags.
+        // Write a temporary config that sets the JUnit path, then run nextest
+        // with --config-file pointing to it. This ensures each sandbox writes
+        // to a unique path, avoiding collisions with the local provider.
+        let config_path = format!("{}.nextest.toml", result_path);
+
+        let mut args = vec![
+            "nextest".to_string(),
+            "run".to_string(),
+            "--no-fail-fast".to_string(),
+            "--config-file".to_string(),
+            config_path.clone(),
+        ];
 
         if let Some(package) = &self.config.package {
-            cmd = cmd.arg("-p").arg(package);
+            args.push("-p".to_string());
+            args.push(package.clone());
         }
 
         if !self.config.features.is_empty() {
-            cmd = cmd.arg("--features").arg(self.config.features.join(","));
+            args.push("--features".to_string());
+            args.push(self.config.features.join(","));
         }
 
         if let Some(bin) = &self.config.bin {
-            cmd = cmd.arg("--bin").arg(bin);
+            args.push("--bin".to_string());
+            args.push(bin.clone());
         }
 
         if self.config.include_ignored {
-            cmd = cmd.arg("--run-ignored").arg("only");
+            args.push("--run-ignored".to_string());
+            args.push("only".to_string());
         }
 
         // Build filter expression: (binary(=b1) & test(=t1)) | (binary(=b2) & test(=t2)) | ...
@@ -233,7 +244,25 @@ impl TestFramework for CargoFramework {
             .collect::<Vec<_>>()
             .join(" | ");
 
-        cmd.arg("-E").arg(&filter_expr)
+        args.push("-E".to_string());
+        args.push(filter_expr);
+
+        let cargo_args = args
+            .iter()
+            .map(|a| shell_words::quote(a).into_owned())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Write a nextest config with the unique JUnit path, then run cargo nextest
+        let shell_cmd = format!(
+            "cat > {config_path} << 'NEXTEST_EOF'\n\
+             [profile.default.junit]\n\
+             path = \"{result_path}\"\n\
+             NEXTEST_EOF\n\
+             cargo {cargo_args}",
+        );
+
+        Command::new("sh").arg("-c").arg(&shell_cmd)
     }
 
     fn parse_results(

@@ -214,7 +214,11 @@ impl TestFramework for DefaultFramework {
         Ok(tests)
     }
 
-    fn produce_test_execution_command(&self, tests: &[TestInstance]) -> Command {
+    fn produce_test_execution_command(
+        &self,
+        tests: &[TestInstance],
+        _result_path: &str,
+    ) -> Command {
         let full_command = self.substitute_tests(tests);
 
         // Run through shell to properly handle quoted arguments, pipes, redirects, etc.
