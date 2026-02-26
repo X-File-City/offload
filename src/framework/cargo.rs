@@ -5,9 +5,9 @@
 //!
 //! # Discovery Process
 //!
-//! 1. Run `cargo nextest list` to enumerate tests
-//! 2. Parse output lines containing `::` test paths
-//! 3. Generate run commands with `cargo nextest run --junit-file`
+//! 1. Run `cargo nextest list --message-format json` to enumerate tests
+//! 2. Parse JSON to extract binary IDs and test names
+//! 3. Generate run commands with JUnit XML output via temp config
 //! 4. Parse results from JUnit XML
 //!
 //! # Test ID Format
@@ -52,14 +52,30 @@
 //! }
 //! ```
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use serde::Deserialize;
 
 use super::{FrameworkError, FrameworkResult, TestFramework, TestInstance, TestRecord, TestResult};
 use crate::config::CargoFrameworkConfig;
 use crate::framework::pytest::parse_junit_xml;
 use crate::provider::{Command, ExecResult};
+
+/// Minimal representation of `cargo nextest list --message-format json` output.
+#[derive(Deserialize)]
+struct NextestListOutput {
+    #[serde(rename = "rust-suites")]
+    rust_suites: HashMap<String, NextestSuite>,
+}
+
+#[derive(Deserialize)]
+struct NextestSuite {
+    #[serde(rename = "binary-id")]
+    binary_id: String,
+    testcases: HashMap<String, serde_json::Value>,
+}
 
 /// Test framework for Rust projects using `cargo nextest`.
 ///
@@ -96,58 +112,22 @@ impl CargoFramework {
         Self { config }
     }
 
-    /// Parse cargo nextest list output to extract test records.
+    /// Parse `cargo nextest list --message-format json` output.
     ///
-    /// Nextest output formats:
-    /// - `binary_name module::test_func` - tests in lib.rs
-    /// - `binary::test_file test_func` - tests in integration test files
-    ///
-    /// Returns test IDs in the format `binary test_name` to match
+    /// Returns test IDs in the format `binary_id test_name` to match
     /// JUnit XML output where classname=binary and name=test_name.
-    fn parse_list_output(&self, output: &str) -> Vec<TestRecord> {
+    fn parse_json_output(&self, json: &str) -> FrameworkResult<Vec<TestRecord>> {
+        let listing: NextestListOutput = serde_json::from_str(json)
+            .map_err(|e| FrameworkError::DiscoveryFailed(format!("Failed to parse JSON: {}", e)))?;
+
         let mut tests = Vec::new();
-        let mut current_binary: Option<String> = None;
-
-        for line in output.lines() {
-            let trimmed = line.trim();
-
-            // Skip empty lines and build output
-            if trimmed.is_empty()
-                || trimmed.starts_with("Compiling")
-                || trimmed.starts_with("Finished")
-            {
-                continue;
-            }
-
-            // Nextest list has two output formats:
-            //
-            // Indented format (default):
-            //   binary_name:
-            //       module::test_func
-            //
-            // Flat format:
-            //   binary_name module::test_func
-
-            if let Some(binary) = trimmed.strip_suffix(':') {
-                // "binary_name:" header line
-                current_binary = Some(binary.to_string());
-            } else {
-                let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    // Flat format: "binary test_path"
-                    let test_id = format!("{} {}", parts[0], parts[1]);
-                    tests.push(TestRecord::new(&test_id));
-                } else if parts.len() == 1
-                    && let Some(ref binary) = current_binary
-                {
-                    // Indented format: test name under a binary header
-                    let test_id = format!("{} {}", binary, parts[0]);
-                    tests.push(TestRecord::new(&test_id));
-                }
+        for suite in listing.rust_suites.values() {
+            for test_name in suite.testcases.keys() {
+                let test_id = format!("{} {}", suite.binary_id, test_name);
+                tests.push(TestRecord::new(&test_id));
             }
         }
-
-        tests
+        Ok(tests)
     }
 }
 
@@ -157,7 +137,8 @@ impl TestFramework for CargoFramework {
         let mut cmd_args = vec![
             "nextest".to_string(),
             "list".to_string(),
-            "--color=never".to_string(), // Prevent ANSI codes in test names
+            "--message-format".to_string(),
+            "json".to_string(),
         ];
 
         if let Some(package) = &self.config.package {
@@ -196,7 +177,7 @@ impl TestFramework for CargoFramework {
             )));
         }
 
-        let tests = self.parse_list_output(&stdout);
+        let tests = self.parse_json_output(&stdout)?;
 
         if tests.is_empty() {
             tracing::warn!(
