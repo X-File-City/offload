@@ -720,9 +720,7 @@ mod tests {
 
             [provider]
             type = "modal"
-            app_name = "offload-sandbox"
             dockerfile = ".devcontainer/Dockerfile"
-            timeout_secs = 600
 
             [framework]
             type = "pytest"
@@ -740,10 +738,10 @@ mod tests {
         );
 
         if let ProviderConfig::Modal(modal_config) = &config.provider {
-            assert_eq!(modal_config.app_name, "offload-sandbox");
-            assert_eq!(modal_config.timeout_secs, 600);
-            assert!(modal_config.working_dir.is_none());
-            assert_eq!(&modal_config.dockerfile, ".devcontainer/Dockerfile");
+            assert_eq!(
+                modal_config.dockerfile.as_deref(),
+                Some(".devcontainer/Dockerfile")
+            );
         }
 
         // Verify framework is at top level with test_id_format
