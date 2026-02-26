@@ -7,7 +7,7 @@ description: "Onboard a repository to use offload for parallel test execution on
 
 This skill walks through onboarding the current repository to use **offload** — a parallel test runner that executes tests across Modal cloud sandboxes.
 
-**Install offload**: `cargo install offload@0.3.0`
+**Install offload**: `cargo install offload@0.3.3`
 
 ## Procedure
 
@@ -96,28 +96,33 @@ node_modules
 
 ### Step 4: Create offload.toml
 
-Ask the user for a Modal app name (suggest `{repo-name}-tests`).
-
 Create `offload.toml` at the project root. Start with these defaults:
+
+There are two provider patterns. Choose the one that fits your project.
+
+**Pattern A — Modal provider (recommended for most cases):**
+
+This is the simpler option. Offload manages the Modal sandbox lifecycle for you. Use this unless you need custom build steps or non-standard directory layouts.
 
 ```toml
 [offload]
 max_parallel = 3
 test_timeout_secs = 120
 stream_output = true
+sandbox_project_root = "/app"
 
 [provider]
 type = "modal"
-app_name = "{app-name}"
 dockerfile = "{path-to-dockerfile}"
-working_dir = "/app"
-timeout_secs = 300
+include_cwd = true
+
+[framework]
+type = "pytest"
+paths = ["{test-paths}"]
+python = "{runner}"              # e.g. "python", "uv"
+extra_args = ["{extra-args}"]    # e.g. ["run", "--with=pytest"] for uv
 
 [groups.all]
-type = "{framework}"
-paths = ["{test-paths}"]
-python = "{runner}"           # pytest only
-extra_args = ["{extra-args}"] # if needed
 retry_count = 0
 
 [report]
@@ -126,10 +131,56 @@ junit = true
 junit_file = "junit.xml"
 ```
 
+**Pattern B — Default provider with Modal scripts (for more control):**
+
+Use this when you need full control over the sandbox lifecycle — for example, custom build steps, non-standard directory layouts, or monorepo setups where you need to run commands between image creation and test execution.
+
+```toml
+[offload]
+max_parallel = 3
+test_timeout_secs = 120
+stream_output = true
+sandbox_project_root = "/app"
+
+[provider]
+type = "default"
+prepare_command = "uv run @modal_sandbox.py prepare --include-cwd {path-to-dockerfile}"
+create_command = "uv run @modal_sandbox.py create {image_id}"
+exec_command = "uv run @modal_sandbox.py exec {sandbox_id} {command}"
+destroy_command = "uv run @modal_sandbox.py destroy {sandbox_id}"
+download_command = "uv run @modal_sandbox.py download {sandbox_id} {paths}"
+timeout_secs = 600
+
+[framework]
+type = "pytest"
+paths = ["{test-paths}"]
+python = "{runner}"              # e.g. "python", "uv"
+extra_args = ["{extra-args}"]    # e.g. ["run", "--with=pytest"] for uv
+
+[groups.all]
+retry_count = 0
+
+[report]
+output_dir = "test-results"
+junit = true
+junit_file = "junit.xml"
+```
+
+**For Cargo (Rust) projects**, replace the `[framework]` section with:
+
+```toml
+[framework]
+type = "cargo"
+# package = "my-crate"    # optional: for workspaces
+# features = ["test-utils"] # optional: cargo features to enable
+```
+
+For other frameworks, use `type = "default"` with custom `discover_command` and `run_command`. See the offload README for the full configuration reference.
+
 Configuration reference:
 - `max_parallel`: Number of concurrent Modal sandboxes (start with 3, optimize later)
 - `test_timeout_secs`: Per-test-batch timeout (120s is generous for unit tests)
-- `timeout_secs`: Provider-level sandbox lifetime (300s covers setup + test + teardown)
+- `sandbox_project_root`: The path where project files live inside the sandbox, exported as `OFFLOAD_ROOT`
 - `retry_count`: Number of retries for failed tests (0 = no retries, 1 = catches transient failures)
 
 ### Step 5: Add JUnit ID Normalization (pytest only)
@@ -178,12 +229,12 @@ Create `scripts/offload-tests.sh`:
 #!/usr/bin/env bash
 #
 # Run the project's test suite via offload (parallel on Modal).
-# Requires: offload (cargo install offload@0.3.0), Modal CLI + credentials
+# Requires: offload (cargo install offload@0.3.3), Modal CLI + credentials
 #
 set -euo pipefail
 
 if ! command -v offload &> /dev/null; then
-    echo "Error: 'offload' not installed. Install with: cargo install offload@0.3.0"
+    echo "Error: 'offload' not installed. Install with: cargo install offload@0.3.3"
     exit 1
 fi
 
@@ -227,7 +278,7 @@ Wait for the user to confirm they've authenticated before proceeding.
 Install offload if not already present:
 
 ```bash
-cargo install offload@0.3.0
+cargo install offload@0.3.3
 ```
 
 Run the tests:
@@ -294,7 +345,7 @@ Report the results as a table to the user and set the optimal values in `offload
    offload run --copy-dir ".:/app"
    ```
 
-   Prerequisites: offload (`cargo install offload@0.3.0`) and Modal credentials (`modal token new`).
+   Prerequisites: offload (`cargo install offload@0.3.3`) and Modal credentials (`modal token new`).
    ````
 
    Adapt the exact command to match what was configured in earlier steps (the script path, `--copy-dir` mapping, etc.).
@@ -354,12 +405,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin/offload
-          key: cargo-offload-0.3.0-${{ runner.os }}
+          key: cargo-offload-0.3.3-${{ runner.os }}
 
       - name: Install offload
         run: |
           if ! command -v offload &> /dev/null; then
-            cargo install offload@0.3.0
+            cargo install offload@0.3.3
           fi
 
       - name: Install Modal CLI
