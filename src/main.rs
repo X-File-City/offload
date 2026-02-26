@@ -207,30 +207,34 @@ async fn run_tests(
 
     info!("Loaded configuration from {}", config_path.display());
 
+    // Get retry_count and filters from the first group (if any)
+    let (group_name, retry_count, filters) = config
+        .groups
+        .iter()
+        .next()
+        .map(|(name, cfg)| (name.clone(), cfg.retry_count, cfg.filters.clone()))
+        .unwrap_or_else(|| ("default".to_string(), 0, None));
+
     // Phase 1: Discover tests using the top-level framework config
     eprint!("Discovering tests... ");
 
     let tests = match &config.framework {
         FrameworkConfig::Pytest(cfg) => {
             PytestFramework::new(cfg.clone())
-                .discover(&[], None)
+                .discover(&[], filters.as_deref())
                 .await?
         }
-        FrameworkConfig::Cargo(cfg) => CargoFramework::new(cfg.clone()).discover(&[], None).await?,
+        FrameworkConfig::Cargo(cfg) => {
+            CargoFramework::new(cfg.clone())
+                .discover(&[], filters.as_deref())
+                .await?
+        }
         FrameworkConfig::Default(cfg) => {
             DefaultFramework::new(cfg.clone())
-                .discover(&[], None)
+                .discover(&[], filters.as_deref())
                 .await?
         }
     };
-
-    // Get retry_count from the first group (if any), defaulting to 0
-    let (group_name, retry_count) = config
-        .groups
-        .iter()
-        .next()
-        .map(|(name, cfg)| (name.clone(), cfg.retry_count))
-        .unwrap_or_else(|| ("default".to_string(), 0));
 
     // Apply group name and retry count to all discovered tests
     let all_tests: Vec<TestRecord> = tests
@@ -465,17 +469,28 @@ where
 async fn collect_tests(config_path: &Path, format: &str) -> Result<()> {
     let config = config::load_config(config_path)?;
 
+    // Get filters from the first group (if any)
+    let filters = config
+        .groups
+        .iter()
+        .next()
+        .and_then(|(_, cfg)| cfg.filters.clone());
+
     // Discover tests once using the top-level framework config
     let tests = match &config.framework {
         FrameworkConfig::Pytest(cfg) => {
             PytestFramework::new(cfg.clone())
-                .discover(&[], None)
+                .discover(&[], filters.as_deref())
                 .await?
         }
-        FrameworkConfig::Cargo(cfg) => CargoFramework::new(cfg.clone()).discover(&[], None).await?,
+        FrameworkConfig::Cargo(cfg) => {
+            CargoFramework::new(cfg.clone())
+                .discover(&[], filters.as_deref())
+                .await?
+        }
         FrameworkConfig::Default(cfg) => {
             DefaultFramework::new(cfg.clone())
-                .discover(&[], None)
+                .discover(&[], filters.as_deref())
                 .await?
         }
     };
