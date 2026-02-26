@@ -75,24 +75,47 @@
 //!
 //! For complex JUnit output, consider preprocessing or using a dedicated parser.
 //!
+//! # Group-Level Filters
+//!
+//! The `discover_command` must contain a `{filters}` placeholder. Each group's
+//! `filters` string is substituted into this placeholder during discovery,
+//! allowing different groups to discover different subsets of tests:
+//!
+//! ```toml
+//! [framework]
+//! type = "default"
+//! discover_command = "pytest --collect-only -q {filters} 2>/dev/null | grep '::'"
+//! run_command = "pytest -v --junitxml={result_file} {tests}"
+//! test_id_format = "{name}"
+//!
+//! [groups.unit]
+//! retry_count = 0
+//! filters = "-m 'not slow'"
+//!
+//! [groups.slow]
+//! retry_count = 2
+//! filters = "-m 'slow'"
+//! ```
+//!
 //! # Example: Jest
 //!
 //! ```toml
-//! [groups.javascript]
+//! [framework]
 //! type = "default"
-//! discover_command = "jest --listTests --json | jq -r '.[]' | xargs -I{} basename {}"
+//! discover_command = "jest --listTests --json {filters} | jq -r '.[]'"
 //! run_command = "jest {tests} --ci --reporters=jest-junit"
 //! result_file = "junit.xml"
+//! test_id_format = "{name}"
 //! ```
 //!
 //! # Example: Go
 //!
 //! ```toml
-//! [groups.go]
+//! [framework]
 //! type = "default"
-//! discover_command = "go test -list '.*' ./... 2>/dev/null | grep -E '^Test'"
+//! discover_command = "go test -list '.*' {filters} ./... 2>/dev/null | grep -E '^Test'"
 //! run_command = "go test -v -run '^({tests})$' ./..."
-//! # Note: Go needs go-junit-report for JUnit XML output
+//! test_id_format = "{classname}/{name}"
 //! ```
 
 use std::path::PathBuf;

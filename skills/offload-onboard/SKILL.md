@@ -7,7 +7,7 @@ description: "Onboard a repository to use offload for parallel test execution on
 
 This skill walks through onboarding the current repository to use **offload** — a parallel test runner that executes tests across Modal cloud sandboxes.
 
-**Install offload**: `cargo install offload@0.3.0`
+**Install offload**: `cargo install offload@0.3.4`
 
 ## Procedure
 
@@ -27,6 +27,12 @@ Investigate how the repository runs its tests:
    - **Extra args**: Any special invocation needed (e.g. `["run", "--group", "test"]` for uv with dependency groups)
 
 Ask the user to confirm your detection if anything is ambiguous.
+
+Before proceeding, verify the following are installed:
+- `uv` (required to run the bundled Modal sandbox script)
+- `modal` CLI — run `modal token new` if not yet authenticated
+- For pytest projects: the configured Python runner (`uv`, `poetry`, or `python`) and pytest must be available locally for test discovery
+- For cargo projects: `cargo-nextest` must be installed (`cargo install cargo-nextest`)
 
 ### Step 2: Find or Create a Dockerfile
 
@@ -83,7 +89,6 @@ __pycache__
 *.egg-info
 .offload
 .offload-image-cache
-.offload-cache
 test-results
 build
 dist
@@ -96,29 +101,35 @@ node_modules
 
 ### Step 4: Create offload.toml
 
-Ask the user for a Modal app name (suggest `{repo-name}-tests`).
-
 Create `offload.toml` at the project root. Start with these defaults:
+
+There are two provider patterns. Choose the one that fits your project.
+
+**Pattern A — Modal provider (recommended for most cases):**
+
+This is the simpler option. Offload manages the Modal sandbox lifecycle for you. Use this unless you need custom build steps or non-standard directory layouts.
 
 ```toml
 [offload]
 max_parallel = 3
 test_timeout_secs = 120
 stream_output = true
+sandbox_project_root = "/app"
 
 [provider]
 type = "modal"
-app_name = "{app-name}"
 dockerfile = "{path-to-dockerfile}"
-working_dir = "/app"
-timeout_secs = 300
+include_cwd = true
+
+[framework]
+type = "pytest"
+paths = ["{test-paths}"]
+python = "{runner}"              # e.g. "python", "uv"
+extra_args = ["{extra-args}"]    # e.g. ["run", "--with=pytest"] for uv
 
 [groups.all]
-type = "{framework}"
-paths = ["{test-paths}"]
-python = "{runner}"           # pytest only
-extra_args = ["{extra-args}"] # if needed
 retry_count = 0
+filters = ""                    # pytest args for discovery filtering (e.g. "-m 'not slow'")
 
 [report]
 output_dir = "test-results"
@@ -126,10 +137,75 @@ junit = true
 junit_file = "junit.xml"
 ```
 
+**Pattern B — Default provider with Modal scripts (for more control):**
+
+Use this when you need full control over the sandbox lifecycle — for example, custom build steps, non-standard directory layouts, or monorepo setups where you need to run commands between image creation and test execution.
+
+```toml
+[offload]
+max_parallel = 3
+test_timeout_secs = 120
+stream_output = true
+sandbox_project_root = "/app"
+
+[provider]
+type = "default"
+prepare_command = "uv run @modal_sandbox.py prepare --include-cwd {path-to-dockerfile}"
+create_command = "uv run @modal_sandbox.py create {image_id}"
+exec_command = "uv run @modal_sandbox.py exec {sandbox_id} {command}"
+destroy_command = "uv run @modal_sandbox.py destroy {sandbox_id}"
+download_command = "uv run @modal_sandbox.py download {sandbox_id} {paths}"
+timeout_secs = 600
+
+[framework]
+type = "pytest"
+paths = ["{test-paths}"]
+python = "{runner}"              # e.g. "python", "uv"
+extra_args = ["{extra-args}"]    # e.g. ["run", "--with=pytest"] for uv
+
+[groups.all]
+retry_count = 0
+filters = ""                    # pytest args for discovery filtering (e.g. "-m 'not slow'")
+
+[report]
+output_dir = "test-results"
+junit = true
+junit_file = "junit.xml"
+```
+
+**For Cargo (Rust) projects**, replace the `[framework]` section with:
+
+```toml
+[framework]
+type = "cargo"
+```
+
+**When to use `type = "default"` (even for pytest/cargo projects):**
+
+The built-in `pytest` and `cargo` frameworks cover straightforward setups. Fall back to `type = "default"` when:
+
+- **Monorepo / workspace setup**: Discovery or execution needs pre-steps like `uv sync --all-packages` or `npm install` across packages
+- **Conflicting local config**: The project's `pyproject.toml` or `setup.cfg` has `addopts` that conflict with offload (e.g. xdist workers, coverage plugins) and you need to override them with `-o addopts=` or `-p no:xdist`
+- **Pre-test commands**: Tests need setup before running (e.g. `git apply` for patches, database migrations, service startup)
+- **Custom discovery pipeline**: Standard collection doesn't work and you need shell pipelines (e.g. grep filtering, marker exclusions combined with workspace sync)
+- **Unsupported framework**: Jest, Go, Mocha, or any framework not directly supported
+
+Example — pytest in a monorepo with xdist conflict:
+
+```toml
+[framework]
+type = "default"
+discover_command = "uv sync --all-packages && uv run pytest --collect-only -q {filters} 2>/dev/null | grep '::'"
+run_command = "cd /app && uv sync --all-packages && uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= --junitxml={result_file} {tests}"
+test_id_format = "{name}"
+```
+
+For the full configuration reference and more examples, see the offload README.
+
 Configuration reference:
 - `max_parallel`: Number of concurrent Modal sandboxes (start with 3, optimize later)
 - `test_timeout_secs`: Per-test-batch timeout (120s is generous for unit tests)
-- `timeout_secs`: Provider-level sandbox lifetime (300s covers setup + test + teardown)
+- `sandbox_project_root`: The path where project files live inside the sandbox, exported as `OFFLOAD_ROOT`
 - `retry_count`: Number of retries for failed tests (0 = no retries, 1 = catches transient failures)
 
 ### Step 5: Add JUnit ID Normalization (pytest only)
@@ -141,25 +217,37 @@ By default, pytest's JUnit XML output uses a `classname` + `name` format that ca
 Add an autouse fixture that writes the full nodeid into the JUnit `name` attribute. Offload's parser already handles `name` values containing `::` by using them verbatim.
 
 1. Identify the root `conftest.py` for the test paths configured in `offload.toml` (e.g., `tests/conftest.py`)
-2. If a `conftest.py` already exists at that location, check whether it already contains `_offload_junit_nodeid` or an equivalent `record_xml_attribute("name", ...)` override. If so, skip.
+2. If a `conftest.py` already exists at that location, check whether it already contains `_set_junit_test_id` or an equivalent `record_xml_attribute("name", ...)` override. If so, **stop and show the user the existing fixture**. Explain that offload needs the JUnit `name` attribute to match collected test IDs, and ask if they want to replace the existing fixture with offload's version. If they approve, replace it. If they decline, switch the `[framework]` section in `offload.toml` to `type = "default"` using the fallback pattern from Step 4, wrapping their existing pytest invocation in custom `discover_command` and `run_command` so that offload controls the `--junitxml` flag directly without needing the conftest fixture.
 3. If no `conftest.py` exists, create one. If one exists, append to it.
 
 Add the following fixture:
 
 ```python
+import os
+
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def _offload_junit_nodeid(record_xml_attribute, request):
-    """Override JUnit name to use the full nodeid, matching pytest --collect-only output.
+def _set_junit_test_id(request: pytest.FixtureRequest, record_xml_attribute) -> None:
+    """Set JUnit XML name to the full test ID for exact matching with offload.
 
-    Offload relies on matching JUnit test IDs to collected test IDs.  When the JUnit
-    ``name`` attribute contains ``::`` offload uses it verbatim, bypassing the lossy
-    classname reconstruction.  This fixture writes the full nodeid into ``name`` so
-    the IDs always match.
+    Uses OFFLOAD_ROOT env var if set (for consistent paths in offload runs),
+    otherwise falls back to pytest's nodeid directly.
     """
-    record_xml_attribute("name", request.node.nodeid)
+    offload_root = os.environ.get("OFFLOAD_ROOT")
+
+    if offload_root:
+        # Build full test ID: relative_path::class::method or relative_path::method
+        fspath = str(request.node.fspath)
+        rel_path = os.path.relpath(fspath, offload_root)
+        nodeid_parts = request.node.nodeid.split("::")
+        # nodeid_parts[0] is the file path (possibly different due to rootdir), [1:] is class/method
+        test_id = "::".join([rel_path] + nodeid_parts[1:])
+    else:
+        test_id = request.node.nodeid
+
+    record_xml_attribute("name", test_id)
 ```
 
 Additionally, ensure `junit_family = "xunit1"` is set in the project's pytest configuration. The `record_xml_attribute` fixture is incompatible with the default `xunit2` family. Add it to whichever config file the project uses:
@@ -178,12 +266,12 @@ Create `scripts/offload-tests.sh`:
 #!/usr/bin/env bash
 #
 # Run the project's test suite via offload (parallel on Modal).
-# Requires: offload (cargo install offload@0.3.0), Modal CLI + credentials
+# Requires: offload (cargo install offload@0.3.4), Modal CLI + credentials
 #
 set -euo pipefail
 
 if ! command -v offload &> /dev/null; then
-    echo "Error: 'offload' not installed. Install with: cargo install offload@0.3.0"
+    echo "Error: 'offload' not installed. Install with: cargo install offload@0.3.4"
     exit 1
 fi
 
@@ -204,7 +292,6 @@ Append offload artifacts to `.gitignore`:
 ```
 # Offload
 test-results/
-.offload-cache/
 ```
 
 ### Step 8: Authenticate with Modal
@@ -227,7 +314,7 @@ Wait for the user to confirm they've authenticated before proceeding.
 Install offload if not already present:
 
 ```bash
-cargo install offload@0.3.0
+cargo install offload@0.3.4
 ```
 
 Run the tests:
@@ -294,16 +381,18 @@ Report the results as a table to the user and set the optimal values in `offload
    offload run --copy-dir ".:/app"
    ```
 
-   Prerequisites: offload (`cargo install offload@0.3.0`) and Modal credentials (`modal token new`).
+   Prerequisites: offload (`cargo install offload@0.3.4`) and Modal credentials (`modal token new`).
    ````
 
    Adapt the exact command to match what was configured in earlier steps (the script path, `--copy-dir` mapping, etc.).
 
 6. Preserve the existing tone and formatting of the file. If it uses a digraph, bullet lists, or a specific heading style, match that style. Do not restructure or reformat existing content.
 
-### Step 12: Set Up CI Job (if applicable)
+### Step 12: Set Up CI Job (optional)
 
-Detect the CI system from the repository:
+Ask the user if they want to set up a CI job to run offload tests automatically on push/PR. If they decline, skip Steps 12 and 13.
+
+If they want CI, detect the CI system from the repository:
 - `.github/workflows/` → GitHub Actions
 - `.gitlab-ci.yml` → GitLab CI
 - `Jenkinsfile` → Jenkins
@@ -354,12 +443,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin/offload
-          key: cargo-offload-0.3.0-${{ runner.os }}
+          key: cargo-offload-0.3.4-${{ runner.os }}
 
       - name: Install offload
         run: |
           if ! command -v offload &> /dev/null; then
-            cargo install offload@0.3.0
+            cargo install offload@0.3.4
           fi
 
       - name: Install Modal CLI
@@ -407,6 +496,7 @@ Wait for the run to succeed. If it fails, diagnose and fix the issue, then trigg
 | All tests "Not Run" / junit.xml missing | Test command failing inside sandbox | Check Dockerfile has correct runtime; debug with `modal sandbox create` |
 | "No such file or directory" on CI | Missing local discovery dependencies | Add language toolchain + dep install steps before offload |
 | Slow sandbox creation | Docker image not cached | Run once to warm cache; `.offload-image-cache` tracks the base image ID |
+| Stale sandbox image | `.offload-image-cache` points to an outdated image | Delete `.offload-image-cache` to force a fresh image build on next run |
 | High parallelism slower than low | Sandbox creation overhead dominates | Reduce `max_parallel`; optimal is usually 2-6 for small test suites |
 
 ## Summary of Files Created/Modified

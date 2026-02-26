@@ -23,10 +23,27 @@
 //! For workspaces, specify the package to test:
 //!
 //! ```toml
-//! [groups.rust]
+//! [framework]
 //! type = "cargo"
 //! package = "my-crate"
 //! features = ["test-utils"]
+//! ```
+//!
+//! # Group-Level Filters
+//!
+//! Groups can specify `filters` which are passed as additional arguments
+//! to `cargo nextest list` during discovery:
+//!
+//! ```toml
+//! [framework]
+//! type = "cargo"
+//!
+//! [groups.default]
+//! retry_count = 0
+//!
+//! [groups.ignored]
+//! retry_count = 1
+//! filters = "--ignored"
 //! ```
 //!
 //! # Example Usage
