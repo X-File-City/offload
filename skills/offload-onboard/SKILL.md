@@ -174,7 +174,27 @@ type = "cargo"
 # features = ["test-utils"] # optional: cargo features to enable
 ```
 
-For other frameworks, use `type = "default"` with custom `discover_command` and `run_command`. See the offload README for the full configuration reference.
+**When to use `type = "default"` (even for pytest/cargo projects):**
+
+The built-in `pytest` and `cargo` frameworks cover straightforward setups. Fall back to `type = "default"` when:
+
+- **Monorepo / workspace setup**: Discovery or execution needs pre-steps like `uv sync --all-packages` or `npm install` across packages
+- **Conflicting local config**: The project's `pyproject.toml` or `setup.cfg` has `addopts` that conflict with offload (e.g. xdist workers, coverage plugins) and you need to override them with `-o addopts=` or `-p no:xdist`
+- **Pre-test commands**: Tests need setup before running (e.g. `git apply` for patches, database migrations, service startup)
+- **Custom discovery pipeline**: Standard collection doesn't work and you need shell pipelines (e.g. grep filtering, marker exclusions combined with workspace sync)
+- **Unsupported framework**: Jest, Go, Mocha, or any framework not directly supported
+
+Example — pytest in a monorepo with xdist conflict:
+
+```toml
+[framework]
+type = "default"
+discover_command = "uv sync --all-packages && uv run pytest --collect-only -q -m 'not acceptance and not release' 2>/dev/null | grep '::'"
+run_command = "cd /app && uv sync --all-packages && uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= --junitxml={result_file} {tests}"
+test_id_format = "{name}"
+```
+
+For the full configuration reference and more examples, see the offload README.
 
 Configuration reference:
 - `max_parallel`: Number of concurrent Modal sandboxes (start with 3, optimize later)

@@ -314,7 +314,7 @@ junit = true
 junit_file = "junit.xml"
 ```
 
-This demonstrates using the `default` framework with custom pytest discovery and execution on Modal, which is common for Python monorepos.
+This demonstrates using the `default` framework with custom pytest discovery and execution on Modal. This is necessary when the built-in `pytest` framework doesn't support your workflow — common reasons include monorepo workspaces requiring pre-sync steps (`uv sync --all-packages`), conflicting `addopts` in `pyproject.toml` (e.g. xdist workers or coverage that must be disabled), or pre-test setup commands. Better support for these workflows in the built-in frameworks is planned for upcoming versions.
 
 ## Bundled Scripts
 
