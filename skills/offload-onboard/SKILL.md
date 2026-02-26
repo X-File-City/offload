@@ -170,8 +170,6 @@ junit_file = "junit.xml"
 ```toml
 [framework]
 type = "cargo"
-# package = "my-crate"    # optional: for workspaces
-# features = ["test-utils"] # optional: cargo features to enable
 ```
 
 **When to use `type = "default"` (even for pytest/cargo projects):**
