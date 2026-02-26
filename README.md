@@ -1,16 +1,27 @@
 # offload
 
-A flexible parallel test runner written in Rust with pluggable execution providers.
+A flexible parallel test runner written in Rust with pluggable execution providers. By [Imbue AI](https://github.com/imbue-ai).
 
 ## Features
 
-- **Parallel execution** across multiple sandboxes
-- **Automatic retry** for flaky tests
-- **Multiple providers**: local processes or plugin scripts to invoke ephemeral compute
-- **Test discovery**: pytest, cargo test, or custom commands
+- **Parallel execution** across multiple sandboxes (local processes or remote environments)
+- **Pluggable providers**: local, default (custom shell commands), and Modal
+- **Multiple test frameworks**: pytest, cargo test, or any custom runner
+- **Automatic retry** with flaky test detection
 - **JUnit XML** reporting
+- **LPT scheduling** when historical timing data is available, with round-robin fallback
+- **Environment variable expansion** in config values (`${VAR}` and `${VAR:-default}`)
+- **Bundled script references** using `@filename.ext` syntax in commands
 
 ## Installation
+
+From crates.io:
+
+```bash
+cargo install offload@0.3.3
+```
+
+From source:
 
 ```bash
 cargo install --path .
@@ -18,109 +29,278 @@ cargo install --path .
 
 ## Quick Start
 
-1. Initialize a config file:
+1. Initialize a configuration file:
+
 ```bash
-offload init --provider process --framework pytest
+offload init --provider local --framework pytest
 ```
 
-2. Run tests:
+2. Edit `offload.toml` as needed for your project.
+
+3. Run tests:
+
 ```bash
 offload run
 ```
 
-## Configuration
+## CLI Reference
 
-Create a `offload.toml` file in your project root.
+### Global Flags
 
-### Core Settings
+| Flag | Description |
+|------|-------------|
+| `-c, --config PATH` | Configuration file path (default: `offload.toml`) |
+| `-v, --verbose` | Enable verbose output |
 
-```toml
-[offload]
-max_parallel = 4          # Number of parallel sandboxes
-test_timeout_secs = 300   # Timeout per test
+### `offload run`
 
-[report]
-output_dir = "test-results"
-junit = true
-junit_file = "junit.xml"
-```
+Run tests in parallel.
 
-## Test Discovery
+| Flag | Description |
+|------|-------------|
+| `--parallel N` | Override maximum parallel sandboxes |
+| `--collect-only` | Discover tests without running them |
+| `--copy-dir LOCAL:REMOTE` | Copy a directory into each sandbox (repeatable) |
+| `--env KEY=VALUE` | Set an environment variable in sandboxes (repeatable) |
+| `--no-cache` | Skip cached image lookup during prepare (forces fresh build) |
 
-### pytest
+### `offload collect`
 
-```toml
-[framework]
-type = "pytest"
-paths = ["tests"]
-python = "python3"
-markers = "not slow"  # Optional: filter by markers
+Discover tests without running them.
 
-[groups.unit]
-retry_count = 2       # Optional: retries for failed tests (default: 0)
-```
+| Flag | Description |
+|------|-------------|
+| `-f, --format text\|json` | Output format (default: `text`) |
 
-### Cargo Test
+### `offload validate`
 
-```toml
-[framework]
-type = "cargo"
-package = "my-crate"  # Optional: for workspaces
-features = ["feature1", "feature2"]
-include_ignored = false
+Validate the configuration file and print a summary of settings.
 
-[groups.rust]
-retry_count = 0
-```
+### `offload init`
 
-### Generic (Custom)
+Generate a new `offload.toml` configuration file.
 
-```toml
-[framework]
-type = "default"
-test_id_format = "{name}"  # Required for default framework
-discover_command = "find tests -name 'test_*.py' | xargs -I {} basename {}"
-run_command = "pytest {tests} -v"
+| Flag | Description |
+|------|-------------|
+| `-p, --provider TYPE` | Provider type: `local`, `default` (default: `local`) |
+| `-f, --framework TYPE` | Framework type: `pytest`, `cargo`, `default` (default: `pytest`) |
 
-[groups.custom]
-retry_count = 0
-```
+### Exit Codes
 
-The `{tests}` placeholder is replaced with discovered test names.
+| Code | Meaning |
+|------|---------|
+| 0 | All tests passed |
+| 1 | Test failures or tests not run |
+| 2 | Flaky tests only (passed on retry) |
 
-## CLI Commands
+## Configuration Reference
 
-```bash
-# Run all tests
-offload run
+Configuration is stored in a TOML file (default: `offload.toml`).
 
-# Run with more parallelism
-offload run --parallel 8
+### `[offload]` -- Core Settings
 
-# Discover tests without running
-offload collect
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_parallel` | integer | `10` | Maximum number of parallel sandboxes |
+| `test_timeout_secs` | integer | `900` | Timeout per test batch in seconds |
+| `working_dir` | string | (cwd) | Working directory for test execution |
+| `stream_output` | boolean | `false` | Stream test output in real-time |
+| `sandbox_project_root` | string | required | Project root path on the remote sandbox (exported as `OFFLOAD_ROOT`) |
 
-# Validate configuration
-offload validate
+### `[provider]` -- Execution Provider
 
-# Initialize new config
-offload init --provider ssh --framework pytest
-```
+The `type` field selects the provider. One of: `local`, `default`, `modal`.
+
+#### `type = "local"`
+
+Run tests as local child processes.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `working_dir` | string | (cwd) | Working directory for spawned processes |
+| `env` | table | `{}` | Environment variables for test processes |
+| `shell` | string | `/bin/sh` | Shell used to execute commands |
+
+#### `type = "default"`
+
+Custom shell commands for sandbox lifecycle management. Supports placeholders: `{sandbox_id}`, `{command}`, `{image_id}`, `{paths}`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `prepare_command` | string | (none) | Runs once before sandbox creation; prints image ID to stdout |
+| `create_command` | string | required | Creates a sandbox; prints sandbox ID to stdout. Can use `{image_id}` |
+| `exec_command` | string | required | Runs a command on a sandbox. Uses `{sandbox_id}` and `{command}` |
+| `destroy_command` | string | required | Destroys a sandbox. Uses `{sandbox_id}` |
+| `download_command` | string | (none) | Downloads files from sandbox. Uses `{sandbox_id}` and `{paths}` |
+| `working_dir` | string | (cwd) | Working directory for lifecycle commands |
+| `timeout_secs` | integer | `3600` | Timeout for remote commands in seconds |
+| `copy_dirs` | list | `[]` | Directories to copy into the image (`"local:remote"` format) |
+| `env` | table | `{}` | Environment variables for test processes |
+
+#### `type = "modal"`
+
+Simplified Modal sandbox provider. Internally generates the appropriate Modal CLI commands.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dockerfile` | string | (none) | Path to Dockerfile for building the sandbox image |
+| `include_cwd` | boolean | `false` | Copy the current working directory into the image |
+| `copy_dirs` | list | `[]` | Directories to copy into the image (`"local:remote"` format) |
+
+### `[framework]` -- Test Framework
+
+The `type` field selects the framework. One of: `pytest`, `cargo`, `default`.
+
+#### `type = "pytest"`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `paths` | list | `["tests"]` | Directories to search for tests |
+| `markers` | string | (none) | pytest marker expression to filter tests |
+| `extra_args` | list | `[]` | Additional pytest arguments for discovery |
+| `python` | string | `"python"` | Python interpreter to use |
+| `test_id_format` | string | `"{name}"` | Format for test IDs from JUnit XML (`{name}`, `{classname}`) |
+
+#### `type = "cargo"`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `package` | string | (none) | Package to test in a Cargo workspace |
+| `features` | list | `[]` | Cargo features to enable |
+| `bin` | string | (none) | Specific binary to test |
+| `include_ignored` | boolean | `false` | Include `#[ignore]` tests |
+| `test_id_format` | string | `"{classname} {name}"` | Format for test IDs from JUnit XML (`{name}`, `{classname}`) |
+
+#### `type = "default"`
+
+Custom shell commands for test discovery and execution.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `discover_command` | string | required | Command that outputs one test ID per line to stdout |
+| `run_command` | string | required | Command template; `{tests}` is replaced with space-separated test IDs. `{result_file}` is replaced with the result file path if configured |
+| `result_file` | string | (none) | Path to JUnit XML result file produced by the test runner |
+| `working_dir` | string | (cwd) | Working directory for test commands |
+| `test_id_format` | string | required | Format for test IDs from JUnit XML (`{name}`, `{classname}`) |
+
+### `[groups.NAME]` -- Test Groups
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `retry_count` | integer | `0` | Number of times to retry failed tests |
+
+Failed tests that pass on retry are marked as "flaky" (exit code 2).
+
+### `[report]` -- Reporting
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `output_dir` | string | `"test-results"` | Directory for report files |
+| `junit` | boolean | `true` | Enable JUnit XML output |
+| `junit_file` | string | `"junit.xml"` | Filename for JUnit XML output |
 
 ## Example Configurations
 
-Example configurations have been provided in the root of this repo. See offload-*.toml for examples.
+Example configuration files are included in the repository root.
 
+### Local Cargo Tests (`offload.toml`)
 
-### Testing
+```toml
+[offload]
+max_parallel = 4
+test_timeout_secs = 300
+stream_output = true
+sandbox_project_root = "."
 
-Use the project to test itself with:
+[provider]
+type = "local"
+working_dir = "."
 
+[framework]
+type = "cargo"
+
+[groups.all]
+retry_count = 0
+
+[report]
+output_dir = "test-results"
 ```
+
+### Pytest on Modal (`offload-modal.toml`)
+
+```toml
+[offload]
+max_parallel = 4
+test_timeout_secs = 600
+stream_output = true
+sandbox_project_root = "/app"
+
+[provider]
+type = "default"
+prepare_command = "uv run @modal_sandbox.py prepare --include-cwd examples/Dockerfile"
+create_command = "uv run @modal_sandbox.py create {image_id}"
+exec_command = "uv run @modal_sandbox.py exec {sandbox_id} {command}"
+destroy_command = "uv run @modal_sandbox.py destroy {sandbox_id}"
+download_command = "uv run @modal_sandbox.py download {sandbox_id} {paths}"
+timeout_secs = 600
+
+[framework]
+type = "pytest"
+paths = ["examples/tests"]
+python = "uv"
+extra_args = ["run", "--with=pytest"]
+
+[groups.unit]
+retry_count = 2
+
+[report]
+output_dir = "test-results"
+```
+
+### Cargo Tests on Modal (`offload-cargo-modal.toml`)
+
+```toml
+[offload]
+max_parallel = 4
+test_timeout_secs = 600
+stream_output = true
+sandbox_project_root = "/app"
+
+[provider]
+type = "modal"
+dockerfile = ".devcontainer/Dockerfile"
+include_cwd = true
+
+[framework]
+type = "cargo"
+
+[groups.all]
+retry_count = 1
+
+[report]
+output_dir = "test-results"
+```
+
+## Bundled Scripts
+
+Commands in configuration can reference bundled scripts using `@filename.ext` syntax. For example, `uv run @modal_sandbox.py create {image_id}` references the bundled `modal_sandbox.py` script. Scripts are extracted to a cache directory on first use.
+
+## Environment Variable Expansion
+
+Configuration values support environment variable expansion:
+
+- `${VAR}` -- required; fails if `VAR` is not set
+- `${VAR:-default}` -- uses `default` if `VAR` is not set
+
+## Self-Testing
+
+offload can run its own test suite on Modal:
+
+```bash
 cargo run -- -c offload-modal.toml run
 ```
 
-(Requires valid Modal API key)
+This requires a valid Modal API key.
 
 ## License
 
