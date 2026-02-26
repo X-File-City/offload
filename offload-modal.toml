@@ -26,7 +26,7 @@ retry_count = 2
 filters = "-m 'not slow'"
 
 [groups.slow]
-retry_count = 2
+retry_count = 3
 filters = "-m 'slow'"
 
 [report]
