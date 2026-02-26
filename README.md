@@ -48,7 +48,7 @@ cargo install --path .
 **For the default framework:**
 - Whatever tools your `discover_command` and `run_command` invoke
 
-## Contracts and Guarantees
+## Invariants and Expectations
 
 Offload relies on a contract between test discovery, execution, and result reporting. Understanding these contracts is essential when using the `default` framework or debugging test ID mismatches.
 
