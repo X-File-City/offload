@@ -12,11 +12,12 @@
 //! ├── ProviderConfig         - Tagged enum selecting provider type
 //! │   ├── Local              - Local process execution
 //! │   └── Default            - Custom remote execution (Modal, etc.)
+//! ├── FrameworkConfig        - Tagged enum selecting test framework (top-level)
+//! │   ├── Pytest             - pytest test framework (test_id_format defaults to "{name}")
+//! │   ├── Cargo              - Rust/Cargo test framework (test_id_format defaults to "{classname} {name}")
+//! │   └── Default            - Custom shell-based framework (test_id_format required)
 //! ├── Groups                 - Named test groups (HashMap<String, GroupConfig>)
-//! │   └── GroupConfig        - Flattened FrameworkConfig (write [groups.name] directly)
-//! │       ├── Pytest         - pytest test framework
-//! │       ├── Cargo          - Rust/Cargo test framework
-//! │       └── Default        - Custom shell-based framework
+//! │   └── GroupConfig        - Per-group settings (retry_count)
 //! └── ReportConfig           - Output and reporting settings
 //! ```
 
@@ -38,34 +39,15 @@ pub struct Config {
     /// Provider configuration determines where tests are run
     pub provider: ProviderConfig,
 
+    /// Framework configuration specifying how tests are discovered and run
+    pub framework: FrameworkConfig,
+
     /// Group configuration allows segmenting tests into named groups
     pub groups: HashMap<String, GroupConfig>,
 
     /// Report configuration for output generation (optional, has defaults).
     #[serde(default)]
     pub report: ReportConfig,
-
-    /// Format string for constructing test IDs from JUnit XML attributes.
-    ///
-    /// Available placeholders:
-    /// - `{name}` - the testcase name attribute
-    /// - `{classname}` - the testcase classname attribute
-    ///
-    /// This format must match how test IDs are produced during discovery.
-    ///
-    /// # Examples
-    ///
-    /// ```toml
-    /// # For cargo/nextest (classname is binary, name is test function)
-    /// test_id_format = "{classname} {name}"
-    ///
-    /// # For pytest (name already contains full path)
-    /// test_id_format = "{name}"
-    ///
-    /// # For pytest when classname needs combining
-    /// test_id_format = "{classname}::{name}"
-    /// ```
-    pub test_id_format: String,
 }
 
 /// Core offload execution settings.
@@ -416,27 +398,20 @@ fn default_remote_timeout() -> u64 {
 
 /// Configuration for a test group.
 ///
-/// Groups allow organizing tests by framework or purpose. The framework
-/// configuration is flattened, so you write `[groups.mygroup]` directly
-/// with the framework fields.
+/// Groups allow segmenting tests for different retry behaviors or filtering.
+/// The test framework is configured at the top level, not per-group.
 ///
 /// # Example
 ///
 /// ```toml
-/// [groups.python]
-/// type = "pytest"
-/// paths = ["tests"]
+/// [groups.all]
+/// retry_count = 1
 ///
-/// [groups.rust]
-/// type = "cargo"
-/// package = "my-crate"
+/// [groups.flaky]
+/// retry_count = 3
 /// ```
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct GroupConfig {
-    /// Framework configuration for this group (flattened in TOML).
-    #[serde(flatten)]
-    pub framework: FrameworkConfig,
-
     /// Number of times to retry failed tests in this group.
     ///
     /// Failed tests are retried up to this many times. If a test passes
@@ -464,6 +439,20 @@ pub enum FrameworkConfig {
     Default(DefaultFrameworkConfig),
 }
 
+impl FrameworkConfig {
+    /// Returns the test ID format string for this framework.
+    ///
+    /// The format string is used to construct test IDs from JUnit XML attributes.
+    /// Available placeholders are `{name}` and `{classname}`.
+    pub fn test_id_format(&self) -> &str {
+        match self {
+            FrameworkConfig::Pytest(config) => &config.test_id_format,
+            FrameworkConfig::Cargo(config) => &config.test_id_format,
+            FrameworkConfig::Default(config) => &config.test_id_format,
+        }
+    }
+}
+
 /// Configuration for pytest test framework.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PytestFrameworkConfig {
@@ -483,6 +472,16 @@ pub struct PytestFrameworkConfig {
     /// Python interpreter to use.
     #[serde(default = "default_python")]
     pub python: String,
+
+    /// Format string for constructing test IDs from JUnit XML attributes.
+    ///
+    /// Available placeholders:
+    /// - `{name}` - the testcase name attribute
+    /// - `{classname}` - the testcase classname attribute
+    ///
+    /// Default: `"{name}"` (pytest typically includes full path in name)
+    #[serde(default = "default_pytest_test_id_format")]
+    pub test_id_format: String,
 }
 
 fn default_test_paths() -> Vec<PathBuf> {
@@ -491,6 +490,14 @@ fn default_test_paths() -> Vec<PathBuf> {
 
 fn default_python() -> String {
     "python".to_string()
+}
+
+fn default_pytest_test_id_format() -> String {
+    "{name}".to_string()
+}
+
+fn default_cargo_test_id_format() -> String {
+    "{classname} {name}".to_string()
 }
 
 /// Configuration for Rust/Cargo test framework.
@@ -519,6 +526,16 @@ pub struct CargoFrameworkConfig {
     /// Default: false
     #[serde(default)]
     pub include_ignored: bool,
+
+    /// Format string for constructing test IDs from JUnit XML attributes.
+    ///
+    /// Available placeholders:
+    /// - `{name}` - the testcase name attribute
+    /// - `{classname}` - the testcase classname attribute
+    ///
+    /// Default: `"{classname} {name}"` (cargo/nextest uses classname as binary name)
+    #[serde(default = "default_cargo_test_id_format")]
+    pub test_id_format: String,
 }
 
 /// Configuration for generic/custom test framework.
@@ -532,24 +549,27 @@ pub struct CargoFrameworkConfig {
 /// - **discover_command**: Outputs one test ID per line to stdout
 /// - **run_command**: Uses `{tests}` placeholder for space-separated test IDs
 /// - **result_file**: Optional JUnit XML for detailed results
+/// - **test_id_format**: Required format string for constructing test IDs from JUnit XML
 ///
 /// # Example: Jest
 ///
 /// ```toml
-/// [groups.javascript]
+/// [framework]
 /// type = "default"
 /// discover_command = "jest --listTests --json | jq -r '.[]'"
 /// run_command = "jest {tests} --ci --reporters=jest-junit"
 /// result_file = "junit.xml"
+/// test_id_format = "{name}"
 /// ```
 ///
 /// # Example: Go tests
 ///
 /// ```toml
-/// [groups.go]
+/// [framework]
 /// type = "default"
 /// discover_command = "go test -list '.*' ./... 2>/dev/null | grep -v '^ok\\|^$'"
 /// run_command = "go test -v -run '{tests}' ./..."
+/// test_id_format = "{classname}/{name}"
 /// ```
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DefaultFrameworkConfig {
@@ -580,6 +600,16 @@ pub struct DefaultFrameworkConfig {
 
     /// Working directory for running test commands.
     pub working_dir: Option<PathBuf>,
+
+    /// Format string for constructing test IDs from JUnit XML attributes.
+    ///
+    /// Available placeholders:
+    /// - `{name}` - the testcase name attribute
+    /// - `{classname}` - the testcase classname attribute
+    ///
+    /// This field is required for the default framework as the format varies
+    /// by test runner.
+    pub test_id_format: String,
 }
 
 /// Configuration for test result reporting.
@@ -675,4 +705,162 @@ pub struct SandboxConfig {
     ///
     /// Each tuple is (local_path, remote_path).
     pub copy_dirs: Vec<(std::path::PathBuf, std::path::PathBuf)>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_modal_provider_with_dockerfile() -> Result<(), Box<dyn std::error::Error>> {
+        let toml = r#"
+            [offload]
+            max_parallel = 4
+            sandbox_project_root = "/app"
+
+            [provider]
+            type = "modal"
+            dockerfile = ".devcontainer/Dockerfile"
+
+            [framework]
+            type = "pytest"
+            test_id_format = "{classname}::{name}"
+
+            [groups.all]
+            retry_count = 1
+        "#;
+
+        let config: Config = toml::from_str(toml)?;
+
+        assert!(
+            matches!(&config.provider, ProviderConfig::Modal(_)),
+            "Expected Modal provider"
+        );
+
+        if let ProviderConfig::Modal(modal_config) = &config.provider {
+            assert_eq!(
+                modal_config.dockerfile.as_deref(),
+                Some(".devcontainer/Dockerfile")
+            );
+        }
+
+        // Verify framework is at top level with test_id_format
+        assert!(
+            matches!(&config.framework, FrameworkConfig::Pytest(_)),
+            "Expected Pytest framework"
+        );
+        assert_eq!(config.framework.test_id_format(), "{classname}::{name}");
+
+        // Verify group only has retry_count
+        assert_eq!(config.groups.get("all").unwrap().retry_count, 1);
+
+        Ok(())
+    }
+
+    fn pytest_local_config() -> Config {
+        Config {
+            offload: OffloadConfig {
+                max_parallel: 10,
+                test_timeout_secs: 900,
+                working_dir: None,
+                stream_output: false,
+                sandbox_project_root: "/app".to_string(),
+            },
+            provider: ProviderConfig::Local(LocalProviderConfig {
+                working_dir: Some(PathBuf::from(".")),
+                ..Default::default()
+            }),
+            framework: FrameworkConfig::Pytest(PytestFrameworkConfig {
+                paths: vec![PathBuf::from("tests")],
+                python: "python".into(),
+                test_id_format: "{name}".into(),
+                ..Default::default()
+            }),
+            groups: HashMap::from([("default".to_string(), GroupConfig { retry_count: 0 })]),
+            report: ReportConfig::default(),
+        }
+    }
+
+    fn cargo_local_config() -> Config {
+        Config {
+            offload: OffloadConfig {
+                max_parallel: 10,
+                test_timeout_secs: 900,
+                working_dir: None,
+                stream_output: false,
+                sandbox_project_root: "/app".to_string(),
+            },
+            provider: ProviderConfig::Local(LocalProviderConfig {
+                working_dir: Some(PathBuf::from(".")),
+                ..Default::default()
+            }),
+            framework: FrameworkConfig::Cargo(CargoFrameworkConfig {
+                test_id_format: "{classname} {name}".into(),
+                ..Default::default()
+            }),
+            groups: HashMap::from([("default".to_string(), GroupConfig { retry_count: 0 })]),
+            report: ReportConfig::default(),
+        }
+    }
+
+    fn default_local_config() -> Config {
+        Config {
+            offload: OffloadConfig {
+                max_parallel: 10,
+                test_timeout_secs: 900,
+                working_dir: None,
+                stream_output: false,
+                sandbox_project_root: "/app".to_string(),
+            },
+            provider: ProviderConfig::Local(LocalProviderConfig {
+                working_dir: Some(PathBuf::from(".")),
+                ..Default::default()
+            }),
+            framework: FrameworkConfig::Default(DefaultFrameworkConfig {
+                discover_command: "echo test1 test2".into(),
+                run_command: "echo Running {tests}".into(),
+                test_id_format: "{name}".into(),
+                result_file: None,
+                working_dir: None,
+            }),
+            groups: HashMap::from([("default".to_string(), GroupConfig { retry_count: 0 })]),
+            report: ReportConfig::default(),
+        }
+    }
+
+    /// Test that the Config built for pytest/local serializes to TOML and
+    /// round-trips back through deserialization successfully.
+    #[test]
+    fn test_init_config_pytest_deserializes() -> Result<(), Box<dyn std::error::Error>> {
+        let config = pytest_local_config();
+        let toml_str = toml::to_string_pretty(&config)?;
+        let deserialized: Config = toml::from_str(&toml_str)?;
+        assert_eq!(deserialized.framework.test_id_format(), "{name}");
+        Ok(())
+    }
+
+    /// Test that the Config built for cargo/local serializes to TOML and
+    /// round-trips back through deserialization successfully.
+    #[test]
+    fn test_init_config_cargo_deserializes() -> Result<(), Box<dyn std::error::Error>> {
+        let config = cargo_local_config();
+        let toml_str = toml::to_string_pretty(&config)?;
+        let deserialized: Config = toml::from_str(&toml_str)?;
+        assert_eq!(
+            deserialized.framework.test_id_format(),
+            "{classname} {name}"
+        );
+        Ok(())
+    }
+
+    /// Test that the Config built for default/local serializes to TOML and
+    /// round-trips back through deserialization successfully.
+    #[test]
+    fn test_init_config_default_deserializes() -> Result<(), Box<dyn std::error::Error>> {
+        let config = default_local_config();
+        let toml_str = toml::to_string_pretty(&config)?;
+        let deserialized: Config = toml::from_str(&toml_str)?;
+        assert_eq!(deserialized.framework.test_id_format(), "{name}");
+        Ok(())
+    }
 }

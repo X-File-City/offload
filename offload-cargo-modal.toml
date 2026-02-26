@@ -1,8 +1,6 @@
 # offload configuration for running cargo tests on Modal
 # Uses the simplified Modal provider
 
-test_id_format = "{classname} {name}"
-
 [offload]
 max_parallel = 4
 test_timeout_secs = 600
@@ -14,8 +12,11 @@ type = "modal"
 dockerfile = ".devcontainer/Dockerfile"
 include_cwd = true
 
-[groups.all]
+[framework]
 type = "cargo"
+# test_id_format defaults to "{classname} {name}" for cargo
+
+[groups.all]
 retry_count = 1
 
 [report]

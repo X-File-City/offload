@@ -1,0 +1,31 @@
+# offload configuration for Modal execution
+
+[offload]
+max_parallel = 4
+test_timeout_secs = 600
+stream_output = true
+sandbox_project_root = "/app"
+
+[provider]
+type = "default"
+prepare_command = "uv run @modal_sandbox.py prepare --include-cwd examples/Dockerfile"
+create_command = "uv run @modal_sandbox.py create {image_id}"
+exec_command = "uv run @modal_sandbox.py exec {sandbox_id} {command}"
+destroy_command = "uv run @modal_sandbox.py destroy {sandbox_id}"
+download_command = "uv run @modal_sandbox.py download {sandbox_id} {paths}"
+timeout_secs = 600
+
+[framework]
+type = "pytest"
+paths = ["examples/tests"]
+python = "uv"
+extra_args = ["run", "--with=pytest"]
+
+[groups.unit]
+retry_count = 2
+
+[groups.slow]
+retry_count = 2
+
+[report]
+output_dir = "test-results"

@@ -8,7 +8,11 @@ use clap::{Parser, Subcommand};
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 
-use offload::config::{self, FrameworkConfig, ProviderConfig, SandboxConfig};
+use offload::config::{
+    self, CargoFrameworkConfig, Config, DefaultFrameworkConfig, DefaultProviderConfig,
+    FrameworkConfig, GroupConfig, LocalProviderConfig, OffloadConfig, ProviderConfig,
+    PytestFrameworkConfig, ReportConfig, SandboxConfig,
+};
 use offload::framework::{
     TestFramework, TestRecord, cargo::CargoFramework, default::DefaultFramework,
     pytest::PytestFramework,
@@ -131,13 +135,6 @@ async fn main() -> Result<()> {
     }
 }
 
-/// Tracks group boundaries within the flat test list.
-struct GroupBoundary {
-    name: String,
-    start: usize,
-    count: usize,
-}
-
 /// Helper to get framework type name for validation.
 fn framework_type_name(framework: &FrameworkConfig) -> &'static str {
     match framework {
@@ -210,67 +207,38 @@ async fn run_tests(
 
     info!("Loaded configuration from {}", config_path.display());
 
-    // Validate all groups use the same framework type
-    let mut framework_types = config
-        .groups
-        .values()
-        .map(|g| framework_type_name(&g.framework));
-    let first_type = framework_types
-        .next()
-        .ok_or_else(|| anyhow!("No groups configured"))?;
-    for ft in framework_types {
-        if ft != first_type {
-            return Err(anyhow!(
-                "All groups must use the same framework type. Found '{}' and '{}'",
-                first_type,
-                ft
-            ));
-        }
-    }
-
-    // Phase 1: Discover tests for all groups into a single Vec
+    // Phase 1: Discover tests using the top-level framework config
     eprint!("Discovering tests... ");
-    let mut all_tests: Vec<TestRecord> = Vec::new();
-    let mut boundaries: Vec<GroupBoundary> = Vec::new();
 
-    for (group_name, group_config) in &config.groups {
-        let start = all_tests.len();
-        let tests = match &group_config.framework {
-            FrameworkConfig::Pytest(cfg) => PytestFramework::new(cfg.clone()).discover(&[]).await?,
-            FrameworkConfig::Cargo(cfg) => CargoFramework::new(cfg.clone()).discover(&[]).await?,
-            FrameworkConfig::Default(cfg) => {
-                DefaultFramework::new(cfg.clone()).discover(&[]).await?
-            }
-        };
-        let count = tests.len();
-        info!("Group '{}': discovered {} tests", group_name, count);
+    let tests = match &config.framework {
+        FrameworkConfig::Pytest(cfg) => PytestFramework::new(cfg.clone()).discover(&[]).await?,
+        FrameworkConfig::Cargo(cfg) => CargoFramework::new(cfg.clone()).discover(&[]).await?,
+        FrameworkConfig::Default(cfg) => DefaultFramework::new(cfg.clone()).discover(&[]).await?,
+    };
 
-        // Set retry count and group name for each test
-        let retry_count = group_config.retry_count;
-        let tests_with_config: Vec<TestRecord> = tests
-            .into_iter()
-            .map(|t| {
-                t.with_retry_count(retry_count)
-                    .with_group(group_name.clone())
-            })
-            .collect();
+    // Get retry_count from the first group (if any), defaulting to 0
+    let (group_name, retry_count) = config
+        .groups
+        .iter()
+        .next()
+        .map(|(name, cfg)| (name.clone(), cfg.retry_count))
+        .unwrap_or_else(|| ("default".to_string(), 0));
 
-        all_tests.extend(tests_with_config);
-        boundaries.push(GroupBoundary {
-            name: group_name.clone(),
-            start,
-            count,
-        });
-    }
+    // Apply group name and retry count to all discovered tests
+    let all_tests: Vec<TestRecord> = tests
+        .into_iter()
+        .map(|t| {
+            t.with_retry_count(retry_count)
+                .with_group(group_name.clone())
+        })
+        .collect();
 
     eprintln!("found {} tests", all_tests.len());
 
     if collect_only {
-        for boundary in &boundaries {
-            println!("\nGroup '{}':", boundary.name);
-            for test in &all_tests[boundary.start..boundary.start + boundary.count] {
-                println!("  {}", test.id);
-            }
+        println!("\nGroup '{}':", group_name);
+        for test in &all_tests {
+            println!("  {}", test.id);
         }
         return Ok(());
     }
@@ -281,14 +249,7 @@ async fn run_tests(
     }
 
     // Phase 2: Run ALL tests at once with a single orchestrator
-    // Get framework config from first group (all groups have same type)
-    let first_group_config = config
-        .groups
-        .values()
-        .next()
-        .ok_or_else(|| anyhow!("No groups configured"))?;
-
-    let exit_code = match (&config.provider, &first_group_config.framework) {
+    let exit_code = match (&config.provider, &config.framework) {
         (ProviderConfig::Local(p_cfg), FrameworkConfig::Pytest(f_cfg)) => {
             run_all_tests(
                 &config,
@@ -496,30 +457,27 @@ where
 async fn collect_tests(config_path: &Path, format: &str) -> Result<()> {
     let config = config::load_config(config_path)?;
 
-    for group_config in config.groups.values() {
-        let tests = match &group_config.framework {
-            FrameworkConfig::Pytest(cfg) => PytestFramework::new(cfg.clone()).discover(&[]).await?,
-            FrameworkConfig::Cargo(cfg) => CargoFramework::new(cfg.clone()).discover(&[]).await?,
-            FrameworkConfig::Default(cfg) => {
-                DefaultFramework::new(cfg.clone()).discover(&[]).await?
-            }
-        };
+    // Discover tests once using the top-level framework config
+    let tests = match &config.framework {
+        FrameworkConfig::Pytest(cfg) => PytestFramework::new(cfg.clone()).discover(&[]).await?,
+        FrameworkConfig::Cargo(cfg) => CargoFramework::new(cfg.clone()).discover(&[]).await?,
+        FrameworkConfig::Default(cfg) => DefaultFramework::new(cfg.clone()).discover(&[]).await?,
+    };
 
-        match format {
-            "json" => {
-                let json = serde_json::to_string_pretty(&tests)?;
-                println!("{}", json);
-            }
-            _ => {
-                println!("Discovered {} tests:", tests.len());
-                for test in &tests {
-                    let markers = if test.markers.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" [{}]", test.markers.join(", "))
-                    };
-                    println!("  {}{}", test.id, markers);
-                }
+    match format {
+        "json" => {
+            let json = serde_json::to_string_pretty(&tests)?;
+            println!("{}", json);
+        }
+        _ => {
+            println!("Discovered {} tests:", tests.len());
+            for test in &tests {
+                let markers = if test.markers.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", test.markers.join(", "))
+                };
+                println!("  {}{}", test.id, markers);
             }
         }
     }
@@ -543,17 +501,15 @@ fn validate_config(config_path: &Path) -> Result<()> {
             };
             println!("  Provider: {}", provider_name);
 
-            // TODO: validate each group
+            let framework_name = framework_type_name(&config.framework);
+            println!("  Framework: {}", framework_name);
 
+            println!();
+            println!("Groups:");
             for (group_name, group_config) in &config.groups {
-                let framework_name = match group_config.framework {
-                    FrameworkConfig::Pytest(_) => "pytest",
-                    FrameworkConfig::Cargo(_) => "cargo",
-                    FrameworkConfig::Default(_) => "default",
-                };
                 println!(
-                    "Group: {}  Framework: {}  Retry count: {}",
-                    group_name, framework_name, group_config.retry_count
+                    "  {}: retry_count = {}",
+                    group_name, group_config.retry_count
                 );
             }
 
@@ -568,23 +524,21 @@ fn validate_config(config_path: &Path) -> Result<()> {
 
 fn init_config(provider: &str, framework: &str) -> Result<()> {
     let provider_config = match provider {
-        "local" => {
-            r#"[provider]
-type = "local"
-working_dir = "."
-shell = "/bin/sh""#
-        }
-        "default" => {
-            r#"[provider]
-type = "default"
-# Your script that handles everything: spin up cloud compute, run tests, return results
-# Test command is appended to this
-execute_command = "./scripts/run-remote.sh"
-# Optional: sync code before running
-setup_command = "./scripts/sync-code.sh"
-# Timeout for remote execution
-timeout_secs = 3600"#
-        }
+        "local" => ProviderConfig::Local(LocalProviderConfig {
+            working_dir: Some(PathBuf::from(".")),
+            ..Default::default()
+        }),
+        "default" => ProviderConfig::Default(DefaultProviderConfig {
+            create_command: "./scripts/create-sandbox.sh".into(),
+            exec_command: "./scripts/exec-sandbox.sh {sandbox_id} {command}".into(),
+            destroy_command: "./scripts/destroy-sandbox.sh {sandbox_id}".into(),
+            prepare_command: None,
+            download_command: None,
+            working_dir: None,
+            timeout_secs: 3600,
+            copy_dirs: vec![],
+            env: HashMap::new(),
+        }),
         _ => {
             eprintln!("Unknown provider: {}. Use: local, default", provider);
             std::process::exit(1);
@@ -592,22 +546,23 @@ timeout_secs = 3600"#
     };
 
     let framework_config = match framework {
-        "pytest" => {
-            r#"[groups.default]
-type = "pytest"
-paths = ["tests"]
-python = "python""#
-        }
-        "cargo" => {
-            r#"[groups.default]
-type = "cargo""#
-        }
-        "default" => {
-            r#"[groups.default]
-type = "default"
-discover_command = "echo test1 test2"
-run_command = "echo Running {tests}""#
-        }
+        "pytest" => FrameworkConfig::Pytest(PytestFrameworkConfig {
+            paths: vec![PathBuf::from("tests")],
+            python: "python".into(),
+            test_id_format: "{name}".into(),
+            ..Default::default()
+        }),
+        "cargo" => FrameworkConfig::Cargo(CargoFrameworkConfig {
+            test_id_format: "{classname} {name}".into(),
+            ..Default::default()
+        }),
+        "default" => FrameworkConfig::Default(DefaultFrameworkConfig {
+            discover_command: "echo test1 test2".into(),
+            run_command: "echo Running {tests}".into(),
+            test_id_format: "{name}".into(),
+            result_file: None,
+            working_dir: None,
+        }),
         _ => {
             eprintln!(
                 "Unknown framework: {}. Use: pytest, cargo, default",
@@ -617,24 +572,22 @@ run_command = "echo Running {tests}""#
         }
     };
 
-    let config = format!(
-        r#"# offload configuration file
+    let config = Config {
+        offload: OffloadConfig {
+            max_parallel: 10,
+            test_timeout_secs: 900,
+            working_dir: None,
+            stream_output: false,
+            sandbox_project_root: "/app".to_string(),
+        },
+        provider: provider_config,
+        framework: framework_config,
+        groups: HashMap::from([("default".to_string(), GroupConfig { retry_count: 0 })]),
+        report: ReportConfig::default(),
+    };
 
-[offload]
-max_parallel = 10
-test_timeout_secs = 900
-
-{}
-
-{}
-
-[report]
-output_dir = "test-results"
-junit = true
-junit_file = "junit.xml"
-"#,
-        provider_config, framework_config
-    );
+    let toml_content = toml::to_string_pretty(&config)?;
+    let output = format!("# offload configuration file\n\n{}", toml_content);
 
     let path = PathBuf::from("offload.toml");
     if path.exists() {
@@ -642,7 +595,7 @@ junit_file = "junit.xml"
         std::process::exit(1);
     }
 
-    std::fs::write(&path, config)?;
+    std::fs::write(&path, output)?;
     println!("Created offload.toml");
     println!();
     println!("Edit the configuration as needed, then run:");
