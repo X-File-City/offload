@@ -212,24 +212,7 @@ async fn run_tests(
 
     let mut all_tests: Vec<TestRecord> = Vec::new();
 
-    // Use a default group if no groups are configured
-    let groups_to_process: Vec<(String, GroupConfig)> = if config.groups.is_empty() {
-        vec![(
-            "default".to_string(),
-            GroupConfig {
-                retry_count: 0,
-                filters: String::new(),
-            },
-        )]
-    } else {
-        config
-            .groups
-            .iter()
-            .map(|(name, cfg)| (name.clone(), cfg.clone()))
-            .collect()
-    };
-
-    for (group_name, group_cfg) in &groups_to_process {
+    for (group_name, group_cfg) in &config.groups {
         let filters = if group_cfg.filters.is_empty() {
             None
         } else {
@@ -269,15 +252,15 @@ async fn run_tests(
     eprintln!(
         "found {} tests across {} groups",
         all_tests.len(),
-        groups_to_process.len()
+        config.groups.len()
     );
 
     if collect_only {
         // Group tests by their group name for display
-        for (group_name, _) in &groups_to_process {
+        for group_name in config.groups.keys() {
             let group_tests: Vec<_> = all_tests
                 .iter()
-                .filter(|t| t.group.as_ref() == Some(group_name))
+                .filter(|t| t.group.as_deref() == Some(group_name.as_str()))
                 .collect();
             if !group_tests.is_empty() {
                 println!("\nGroup '{}':", group_name);
@@ -503,27 +486,10 @@ where
 async fn collect_tests(config_path: &Path, format: &str) -> Result<()> {
     let config = config::load_config(config_path)?;
 
-    // Use a default group if no groups are configured
-    let groups_to_process: Vec<(String, GroupConfig)> = if config.groups.is_empty() {
-        vec![(
-            "default".to_string(),
-            GroupConfig {
-                retry_count: 0,
-                filters: String::new(),
-            },
-        )]
-    } else {
-        config
-            .groups
-            .iter()
-            .map(|(name, cfg)| (name.clone(), cfg.clone()))
-            .collect()
-    };
-
     // Discover tests for each group
     let mut all_tests: Vec<TestRecord> = Vec::new();
 
-    for (group_name, group_cfg) in &groups_to_process {
+    for (group_name, group_cfg) in &config.groups {
         let filters = if group_cfg.filters.is_empty() {
             None
         } else {
@@ -569,12 +535,12 @@ async fn collect_tests(config_path: &Path, format: &str) -> Result<()> {
             println!(
                 "Discovered {} tests across {} groups:",
                 all_tests.len(),
-                groups_to_process.len()
+                config.groups.len()
             );
-            for (group_name, _) in &groups_to_process {
+            for group_name in config.groups.keys() {
                 let group_tests: Vec<_> = all_tests
                     .iter()
-                    .filter(|t| t.group.as_ref() == Some(group_name))
+                    .filter(|t| t.group.as_deref() == Some(group_name.as_str()))
                     .collect();
                 if !group_tests.is_empty() {
                     println!("\nGroup '{}':", group_name);

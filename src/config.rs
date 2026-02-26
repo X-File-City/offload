@@ -134,8 +134,19 @@ pub fn load_config_str(content: &str) -> Result<Config> {
 /// # Errors
 ///
 /// Returns an error if:
+/// - No groups are defined
 /// - Default framework's `discover_command` is missing the `{filters}` placeholder
 fn validate_config(config: &Config) -> Result<()> {
+    // Require at least one group
+    if config.groups.is_empty() {
+        anyhow::bail!(
+            "Configuration must define at least one group. Add a [groups.NAME] section, e.g.:\n\
+             [groups.all]\n\
+             retry_count = 0\n\
+             filters = \"\""
+        );
+    }
+
     if let FrameworkConfig::Default(ref cfg) = config.framework
         && !cfg.discover_command.contains("{filters}")
     {
@@ -251,6 +262,60 @@ fn expand_provider_env(provider: &mut ProviderConfig) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_config_with_empty_groups_returns_error() {
+        // Test with empty [groups] table (explicit but empty)
+        let toml = r#"
+            [offload]
+            max_parallel = 4
+            sandbox_project_root = "/app"
+
+            [provider]
+            type = "local"
+
+            [framework]
+            type = "pytest"
+
+            [groups]
+        "#;
+
+        let result = load_config_str(toml);
+        assert!(result.is_err(), "Expected error for empty groups");
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("at least one group"),
+            "Error message should mention requiring at least one group, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_config_missing_groups_section_returns_error() {
+        // Test with missing groups section entirely (TOML parsing will fail)
+        let toml = r#"
+            [offload]
+            max_parallel = 4
+            sandbox_project_root = "/app"
+
+            [provider]
+            type = "local"
+
+            [framework]
+            type = "pytest"
+        "#;
+
+        let result = load_config_str(toml);
+        assert!(result.is_err(), "Expected error for missing groups section");
+        // The error comes from TOML parsing, wrapped by anyhow
+        // Check the full error chain by formatting with alternate display
+        let err = result.unwrap_err();
+        let err_chain = format!("{err:#}");
+        assert!(
+            err_chain.contains("groups") || err_chain.contains("missing field"),
+            "Error chain should mention groups, got: {err_chain}"
+        );
+    }
 
     #[test]
     fn test_default_framework_missing_filters_placeholder_returns_error() {
