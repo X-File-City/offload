@@ -192,25 +192,37 @@ By default, pytest's JUnit XML output uses a `classname` + `name` format that ca
 Add an autouse fixture that writes the full nodeid into the JUnit `name` attribute. Offload's parser already handles `name` values containing `::` by using them verbatim.
 
 1. Identify the root `conftest.py` for the test paths configured in `offload.toml` (e.g., `tests/conftest.py`)
-2. If a `conftest.py` already exists at that location, check whether it already contains `_offload_junit_nodeid` or an equivalent `record_xml_attribute("name", ...)` override. If so, skip.
+2. If a `conftest.py` already exists at that location, check whether it already contains `_set_junit_test_id` or an equivalent `record_xml_attribute("name", ...)` override. If so, skip.
 3. If no `conftest.py` exists, create one. If one exists, append to it.
 
 Add the following fixture:
 
 ```python
+import os
+
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def _offload_junit_nodeid(record_xml_attribute, request):
-    """Override JUnit name to use the full nodeid, matching pytest --collect-only output.
+def _set_junit_test_id(request: pytest.FixtureRequest, record_xml_attribute) -> None:
+    """Set JUnit XML name to the full test ID for exact matching with offload.
 
-    Offload relies on matching JUnit test IDs to collected test IDs.  When the JUnit
-    ``name`` attribute contains ``::`` offload uses it verbatim, bypassing the lossy
-    classname reconstruction.  This fixture writes the full nodeid into ``name`` so
-    the IDs always match.
+    Uses OFFLOAD_ROOT env var if set (for consistent paths in offload runs),
+    otherwise falls back to pytest's nodeid directly.
     """
-    record_xml_attribute("name", request.node.nodeid)
+    offload_root = os.environ.get("OFFLOAD_ROOT")
+
+    if offload_root:
+        # Build full test ID: relative_path::class::method or relative_path::method
+        fspath = str(request.node.fspath)
+        rel_path = os.path.relpath(fspath, offload_root)
+        nodeid_parts = request.node.nodeid.split("::")
+        # nodeid_parts[0] is the file path (possibly different due to rootdir), [1:] is class/method
+        test_id = "::".join([rel_path] + nodeid_parts[1:])
+    else:
+        test_id = request.node.nodeid
+
+    record_xml_attribute("name", test_id)
 ```
 
 Additionally, ensure `junit_family = "xunit1"` is set in the project's pytest configuration. The `record_xml_attribute` fixture is incompatible with the default `xunit2` family. Add it to whichever config file the project uses:
