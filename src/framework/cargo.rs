@@ -136,7 +136,7 @@ impl TestFramework for CargoFramework {
     async fn discover(
         &self,
         _paths: &[PathBuf],
-        _filters: Option<&str>,
+        filters: Option<&str>,
     ) -> FrameworkResult<Vec<TestRecord>> {
         let mut cmd_args = vec![
             "nextest".to_string(),
@@ -163,6 +163,13 @@ impl TestFramework for CargoFramework {
         if self.config.include_ignored {
             cmd_args.push("--run-ignored".to_string());
             cmd_args.push("only".to_string());
+        }
+
+        // Add filters if provided
+        if let Some(filter_str) = filters
+            && let Ok(args) = shell_words::split(filter_str)
+        {
+            cmd_args.extend(args);
         }
 
         let output = tokio::process::Command::new("cargo")
