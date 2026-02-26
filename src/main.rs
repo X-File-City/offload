@@ -213,26 +213,20 @@ async fn run_tests(
     let mut all_tests: Vec<TestRecord> = Vec::new();
 
     for (group_name, group_cfg) in &config.groups {
-        let filters = if group_cfg.filters.is_empty() {
-            None
-        } else {
-            Some(group_cfg.filters.as_str())
-        };
-
         let tests = match &config.framework {
             FrameworkConfig::Pytest(cfg) => {
                 PytestFramework::new(cfg.clone())
-                    .discover(&[], filters)
+                    .discover(&[], &group_cfg.filters)
                     .await?
             }
             FrameworkConfig::Cargo(cfg) => {
                 CargoFramework::new(cfg.clone())
-                    .discover(&[], filters)
+                    .discover(&[], &group_cfg.filters)
                     .await?
             }
             FrameworkConfig::Default(cfg) => {
                 DefaultFramework::new(cfg.clone())
-                    .discover(&[], filters)
+                    .discover(&[], &group_cfg.filters)
                     .await?
             }
         };
@@ -490,26 +484,20 @@ async fn collect_tests(config_path: &Path, format: &str) -> Result<()> {
     let mut all_tests: Vec<TestRecord> = Vec::new();
 
     for (group_name, group_cfg) in &config.groups {
-        let filters = if group_cfg.filters.is_empty() {
-            None
-        } else {
-            Some(group_cfg.filters.as_str())
-        };
-
         let tests = match &config.framework {
             FrameworkConfig::Pytest(cfg) => {
                 PytestFramework::new(cfg.clone())
-                    .discover(&[], filters)
+                    .discover(&[], &group_cfg.filters)
                     .await?
             }
             FrameworkConfig::Cargo(cfg) => {
                 CargoFramework::new(cfg.clone())
-                    .discover(&[], filters)
+                    .discover(&[], &group_cfg.filters)
                     .await?
             }
             FrameworkConfig::Default(cfg) => {
                 DefaultFramework::new(cfg.clone())
-                    .discover(&[], filters)
+                    .discover(&[], &group_cfg.filters)
                     .await?
             }
         };

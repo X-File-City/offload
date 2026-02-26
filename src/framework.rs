@@ -50,7 +50,7 @@
 //!
 //! #[async_trait]
 //! impl TestFramework for MyFramework {
-//!     async fn discover(&self, paths: &[PathBuf], _filters: Option<&str>) -> FrameworkResult<Vec<TestRecord>> {
+//!     async fn discover(&self, paths: &[PathBuf], _filters: &str) -> FrameworkResult<Vec<TestRecord>> {
 //!         // Discover tests in the given paths
 //!         todo!()
 //!     }
@@ -700,7 +700,7 @@ impl TestOutcome {
 ///
 /// #[async_trait]
 /// impl TestFramework for JestFramework {
-///     async fn discover(&self, paths: &[PathBuf], _filters: Option<&str>) -> FrameworkResult<Vec<TestRecord>> {
+///     async fn discover(&self, paths: &[PathBuf], _filters: &str) -> FrameworkResult<Vec<TestRecord>> {
 ///         // Run: jest --listTests
 ///         // Parse output to extract test files
 ///         todo!()
@@ -741,11 +741,7 @@ pub trait TestFramework: Send + Sync {
     ///
     /// A list of discovered [`TestRecord`] objects, or an error if discovery
     /// failed (command error, parse error, etc.).
-    async fn discover(
-        &self,
-        paths: &[PathBuf],
-        filters: Option<&str>,
-    ) -> FrameworkResult<Vec<TestRecord>>;
+    async fn discover(&self, paths: &[PathBuf], filters: &str) -> FrameworkResult<Vec<TestRecord>>;
 
     /// Generates a command to run the specified tests.
     ///

@@ -45,7 +45,7 @@
 //!     };
 //!
 //!     let framework = CargoFramework::new(config);
-//!     let tests = framework.discover(&[], None).await?;
+//!     let tests = framework.discover(&[], "").await?;
 //!
 //!     println!("Found {} tests", tests.len());
 //!     Ok(())
@@ -162,7 +162,7 @@ impl TestFramework for CargoFramework {
     async fn discover(
         &self,
         _paths: &[PathBuf],
-        filters: Option<&str>,
+        filters: &str,
     ) -> FrameworkResult<Vec<TestRecord>> {
         let mut cmd_args = vec![
             "nextest".to_string(),
@@ -192,9 +192,13 @@ impl TestFramework for CargoFramework {
         }
 
         // Add filters if provided
-        if let Some(filter_str) = filters
-            && let Ok(args) = shell_words::split(filter_str)
-        {
+        if !filters.is_empty() {
+            let args = shell_words::split(filters).map_err(|e| {
+                FrameworkError::DiscoveryFailed(format!(
+                    "Invalid filter string '{}': {}",
+                    filters, e
+                ))
+            })?;
             cmd_args.extend(args);
         }
 

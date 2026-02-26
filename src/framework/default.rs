@@ -175,13 +175,10 @@ impl TestFramework for DefaultFramework {
     async fn discover(
         &self,
         _paths: &[PathBuf],
-        filters: Option<&str>,
+        filters: &str,
     ) -> FrameworkResult<Vec<TestRecord>> {
         // Substitute {filters} placeholder with actual filters or empty string
-        let discover_command = self
-            .config
-            .discover_command
-            .replace("{filters}", filters.unwrap_or(""));
+        let discover_command = self.config.discover_command.replace("{filters}", filters);
 
         // Run test discovery command through shell to support pipes, globs, etc.
         let mut cmd = tokio::process::Command::new("sh");
