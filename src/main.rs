@@ -582,7 +582,13 @@ fn init_config(provider: &str, framework: &str) -> Result<()> {
         },
         provider: provider_config,
         framework: framework_config,
-        groups: HashMap::from([("default".to_string(), GroupConfig { retry_count: 0 })]),
+        groups: HashMap::from([(
+            "default".to_string(),
+            GroupConfig {
+                retry_count: 0,
+                filters: None,
+            },
+        )]),
         report: ReportConfig::default(),
     };
 
