@@ -55,7 +55,7 @@
 //!         todo!()
 //!     }
 //!
-//!     fn produce_test_execution_command(&self, tests: &[TestInstance]) -> Command {
+//!     fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command {
 //!         // Generate command to run these tests
 //!         todo!()
 //!     }
@@ -706,7 +706,7 @@ impl TestOutcome {
 ///         todo!()
 ///     }
 ///
-///     fn produce_test_execution_command(&self, tests: &[TestInstance]) -> Command {
+///     fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command {
 ///         let test_args: Vec<_> = tests.iter().map(|t| t.id()).collect();
 ///         Command::new("jest")
 ///             .args(test_args)
@@ -754,7 +754,7 @@ pub trait TestFramework: Send + Sync {
     /// # Example Output
     ///
     /// For pytest: `pytest -v tests/test_a.py::test_func tests/test_b.py::test_other`
-    fn produce_test_execution_command(&self, tests: &[TestInstance]) -> Command;
+    fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command;
 
     /// Parses test results from command execution.
     ///

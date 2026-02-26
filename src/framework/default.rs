@@ -155,10 +155,10 @@ impl DefaultFramework {
             .collect()
     }
 
-    /// Substitute {tests} placeholder in run command.
+    /// Substitute {tests} and {result_file} placeholders in run command.
     ///
     /// Test IDs are shell-escaped to handle IDs containing spaces or special characters.
-    fn substitute_tests(&self, tests: &[TestInstance]) -> String {
+    fn substitute_command(&self, tests: &[TestInstance], result_path: &str) -> String {
         let test_ids: Vec<_> = tests
             .iter()
             .map(|t| shell_words::quote(t.id()).into_owned())
@@ -166,6 +166,7 @@ impl DefaultFramework {
         self.config
             .run_command
             .replace("{tests}", &test_ids.join(" "))
+            .replace("{result_file}", result_path)
     }
 }
 
@@ -214,8 +215,8 @@ impl TestFramework for DefaultFramework {
         Ok(tests)
     }
 
-    fn produce_test_execution_command(&self, tests: &[TestInstance]) -> Command {
-        let full_command = self.substitute_tests(tests);
+    fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command {
+        let full_command = self.substitute_command(tests, result_path);
 
         // Run through shell to properly handle quoted arguments, pipes, redirects, etc.
         // This matches the behavior of discover() and avoids issues with split_whitespace()

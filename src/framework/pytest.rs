@@ -144,7 +144,7 @@ impl TestFramework for PytestFramework {
         Ok(tests)
     }
 
-    fn produce_test_execution_command(&self, tests: &[TestInstance]) -> Command {
+    fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command {
         let mut cmd = Command::new(&self.config.python);
 
         for arg in &self.config.extra_args {
@@ -156,7 +156,7 @@ impl TestFramework for PytestFramework {
             .arg("pytest")
             .arg("-v")
             .arg("--tb=short")
-            .arg("--junitxml=/tmp/junit.xml");
+            .arg(format!("--junitxml={}", result_path));
 
         // Add test IDs
         for test in tests {

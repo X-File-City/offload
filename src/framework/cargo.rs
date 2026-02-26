@@ -5,9 +5,9 @@
 //!
 //! # Discovery Process
 //!
-//! 1. Run `cargo nextest list` to enumerate tests
-//! 2. Parse output lines containing `::` test paths
-//! 3. Generate run commands with `cargo nextest run --junit-file`
+//! 1. Run `cargo nextest list --message-format json` to enumerate tests
+//! 2. Parse JSON to extract binary IDs and test names
+//! 3. Generate run commands with JUnit XML output via temp config
 //! 4. Parse results from JUnit XML
 //!
 //! # Test ID Format
@@ -52,14 +52,30 @@
 //! }
 //! ```
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use serde::Deserialize;
 
 use super::{FrameworkError, FrameworkResult, TestFramework, TestInstance, TestRecord, TestResult};
 use crate::config::CargoFrameworkConfig;
 use crate::framework::pytest::parse_junit_xml;
 use crate::provider::{Command, ExecResult};
+
+/// Minimal representation of `cargo nextest list --message-format json` output.
+#[derive(Deserialize)]
+struct NextestListOutput {
+    #[serde(rename = "rust-suites")]
+    rust_suites: HashMap<String, NextestSuite>,
+}
+
+#[derive(Deserialize)]
+struct NextestSuite {
+    #[serde(rename = "binary-id")]
+    binary_id: String,
+    testcases: HashMap<String, serde_json::Value>,
+}
 
 /// Test framework for Rust projects using `cargo nextest`.
 ///
@@ -96,40 +112,22 @@ impl CargoFramework {
         Self { config }
     }
 
-    /// Parse cargo nextest list output to extract test records.
+    /// Parse `cargo nextest list --message-format json` output.
     ///
-    /// Nextest output formats:
-    /// - `binary_name module::test_func` - tests in lib.rs
-    /// - `binary::test_file test_func` - tests in integration test files
-    ///
-    /// Returns test IDs in the format `binary test_name` to match
+    /// Returns test IDs in the format `binary_id test_name` to match
     /// JUnit XML output where classname=binary and name=test_name.
-    fn parse_list_output(&self, output: &str) -> Vec<TestRecord> {
+    fn parse_json_output(&self, json: &str) -> FrameworkResult<Vec<TestRecord>> {
+        let listing: NextestListOutput = serde_json::from_str(json)
+            .map_err(|e| FrameworkError::DiscoveryFailed(format!("Failed to parse JSON: {}", e)))?;
+
         let mut tests = Vec::new();
-
-        for line in output.lines() {
-            let trimmed = line.trim();
-
-            // Skip empty lines and build output
-            if trimmed.is_empty()
-                || trimmed.starts_with("Compiling")
-                || trimmed.starts_with("Finished")
-            {
-                continue;
-            }
-
-            // Nextest format: "binary test_path" (space-separated)
-            // Binary may contain "::" for integration tests (e.g., "rust-tests::algorithm_tests")
-            // Test path may contain "::" for module paths (e.g., "tests::test_add")
-            let parts: Vec<&str> = trimmed.split_whitespace().collect();
-            if parts.len() >= 2 {
-                // Full test ID: "binary test_name" matching JUnit classname + name format
-                let test_id = format!("{} {}", parts[0], parts[1]);
+        for suite in listing.rust_suites.values() {
+            for test_name in suite.testcases.keys() {
+                let test_id = format!("{} {}", suite.binary_id, test_name);
                 tests.push(TestRecord::new(&test_id));
             }
         }
-
-        tests
+        Ok(tests)
     }
 }
 
@@ -139,7 +137,8 @@ impl TestFramework for CargoFramework {
         let mut cmd_args = vec![
             "nextest".to_string(),
             "list".to_string(),
-            "--color=never".to_string(), // Prevent ANSI codes in test names
+            "--message-format".to_string(),
+            "json".to_string(),
         ];
 
         if let Some(package) = &self.config.package {
@@ -178,7 +177,7 @@ impl TestFramework for CargoFramework {
             )));
         }
 
-        let tests = self.parse_list_output(&stdout);
+        let tests = self.parse_json_output(&stdout)?;
 
         if tests.is_empty() {
             tracing::warn!(
@@ -193,28 +192,39 @@ impl TestFramework for CargoFramework {
         Ok(tests)
     }
 
-    fn produce_test_execution_command(&self, tests: &[TestInstance]) -> Command {
-        // JUnit output should be configured via .config/nextest.toml to /tmp/junit.xml
-        // where offload's runner expects it
-        let mut cmd = Command::new("cargo")
-            .arg("nextest")
-            .arg("run")
-            .arg("--no-fail-fast");
+    fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command {
+        // Nextest configures JUnit output via config file, not CLI flags.
+        // Write a temporary config that sets the JUnit path, then run nextest
+        // with --config-file pointing to it. This ensures each sandbox writes
+        // to a unique path, avoiding collisions with the local provider.
+        let config_path = format!("{}.nextest.toml", result_path);
+
+        let mut args = vec![
+            "nextest".to_string(),
+            "run".to_string(),
+            "--no-fail-fast".to_string(),
+            "--config-file".to_string(),
+            config_path.clone(),
+        ];
 
         if let Some(package) = &self.config.package {
-            cmd = cmd.arg("-p").arg(package);
+            args.push("-p".to_string());
+            args.push(package.clone());
         }
 
         if !self.config.features.is_empty() {
-            cmd = cmd.arg("--features").arg(self.config.features.join(","));
+            args.push("--features".to_string());
+            args.push(self.config.features.join(","));
         }
 
         if let Some(bin) = &self.config.bin {
-            cmd = cmd.arg("--bin").arg(bin);
+            args.push("--bin".to_string());
+            args.push(bin.clone());
         }
 
         if self.config.include_ignored {
-            cmd = cmd.arg("--run-ignored").arg("only");
+            args.push("--run-ignored".to_string());
+            args.push("only".to_string());
         }
 
         // Build filter expression: (binary(=b1) & test(=t1)) | (binary(=b2) & test(=t2)) | ...
@@ -233,7 +243,25 @@ impl TestFramework for CargoFramework {
             .collect::<Vec<_>>()
             .join(" | ");
 
-        cmd.arg("-E").arg(&filter_expr)
+        args.push("-E".to_string());
+        args.push(filter_expr);
+
+        let cargo_args = args
+            .iter()
+            .map(|a| shell_words::quote(a).into_owned())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Write a nextest config with the unique JUnit path, then run cargo nextest
+        let shell_cmd = format!(
+            "cat > {config_path} << 'NEXTEST_EOF'\n\
+             [profile.default.junit]\n\
+             path = \"{result_path}\"\n\
+             NEXTEST_EOF\n\
+             cargo {cargo_args}",
+        );
+
+        Command::new("sh").arg("-c").arg(&shell_cmd)
     }
 
     fn parse_results(

@@ -364,13 +364,20 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
             );
         }
 
+        // Generate a unique result path per sandbox to avoid collisions
+        let result_path = format!("/tmp/{}.xml", sandbox_id);
+
         // Generate the run command for all tests
-        let mut cmd = self.framework.produce_test_execution_command(tests);
+        let mut cmd = self
+            .framework
+            .produce_test_execution_command(tests, &result_path);
         cmd = cmd.timeout(self.timeout.as_secs());
 
         info!(
-            "[BATCH EXEC] Sandbox {} executing command for {} tests",
-            sandbox_id, expected_count
+            "[BATCH EXEC] Sandbox {} executing command for {} tests: {}",
+            sandbox_id,
+            expected_count,
+            cmd.to_shell_string()
         );
 
         // Execute the command with streaming (always use streaming for default provider support)
@@ -480,13 +487,14 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
             );
         }
 
-        // Download from /tmp/junit.xml (standard location)
-        let remote_path = std::path::Path::new("/tmp/junit.xml");
+        // Download from /tmp/{sandbox_id}.xml (unique per sandbox to avoid collisions)
+        let remote_path_str = format!("/tmp/{}.xml", sandbox_id);
+        let remote_path = std::path::Path::new(&remote_path_str);
         let temp_file = tempfile::NamedTempFile::new().ok()?;
 
         info!(
-            "[DOWNLOAD] Sandbox {} downloading /tmp/junit.xml...",
-            sandbox_id
+            "[DOWNLOAD] Sandbox {} downloading {}...",
+            sandbox_id, remote_path_str
         );
         let path_pairs = [(remote_path, temp_file.path() as &std::path::Path)];
         match self.sandbox.download(&path_pairs).await {
