@@ -90,23 +90,6 @@ impl ModalProvider {
     /// - The prepare command fails (non-zero exit code)
     /// - The prepare command returns an empty image ID
     ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use offload::provider::modal::ModalProvider;
-    /// use offload::config::ModalProviderConfig;
-    ///
-    /// # async fn example() -> anyhow::Result<()> {
-    /// let config = ModalProviderConfig {
-    ///     dockerfile: Some("./Dockerfile".to_string()),
-    ///     include_cwd: true,
-    ///     copy_dirs: vec!["./src:/app/src".to_string()],
-    /// };
-    ///
-    /// let provider = ModalProvider::from_config(config, &[], false).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
     pub async fn from_config(
         config: ModalProviderConfig,
         copy_dirs: &[(PathBuf, PathBuf)],

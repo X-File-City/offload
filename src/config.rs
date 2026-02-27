@@ -59,16 +59,6 @@ pub fn format_test_id(format: &str, name: &str, classname: Option<&str>) -> Stri
 /// - The file contains invalid TOML syntax
 /// - The configuration doesn't match the expected schema
 ///
-/// # Example
-///
-/// ```no_run
-/// use offload::config::load_config;
-/// use std::path::Path;
-///
-/// let config = load_config(Path::new("offload.toml"))?;
-/// println!("Max parallel: {}", config.offload.max_parallel);
-/// # Ok::<(), anyhow::Error>(())
-/// ```
 pub fn load_config(path: &Path) -> Result<Config> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read config file: {}", path.display()))?;

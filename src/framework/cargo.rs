@@ -46,28 +46,6 @@
 //! filters = "--ignored"
 //! ```
 //!
-//! # Example Usage
-//!
-//! ```no_run
-//! use offload::framework::cargo::CargoFramework;
-//! use offload::framework::TestFramework;
-//! use offload::config::CargoFrameworkConfig;
-//!
-//! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
-//!     let config = CargoFrameworkConfig {
-//!         package: Some("my-crate".into()),
-//!         features: vec!["test-utils".into()],
-//!         ..Default::default()
-//!     };
-//!
-//!     let framework = CargoFramework::new(config);
-//!     let tests = framework.discover(&[], "").await?;
-//!
-//!     println!("Found {} tests", tests.len());
-//!     Ok(())
-//! }
-//! ```
 
 use std::collections::HashMap;
 use std::path::PathBuf;

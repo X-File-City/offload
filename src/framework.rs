@@ -32,31 +32,6 @@
 //! | [`cargo::CargoFramework`] | Rust | `cargo test --list` |
 //! | [`default::DefaultFramework`] | Any | Custom shell commands |
 //!
-//! # Custom Frameworks
-//!
-//! Implement [`TestFramework`] to support new test frameworks:
-//!
-//! ```no_run
-//! use async_trait::async_trait;
-//! use offload::framework::*;
-//! use offload::provider::Command;
-//! use std::path::PathBuf;
-//!
-//! struct MyFramework;
-//!
-//! #[async_trait]
-//! impl TestFramework for MyFramework {
-//!     async fn discover(&self, paths: &[PathBuf], _filters: &str) -> FrameworkResult<Vec<TestRecord>> {
-//!         // Discover tests in the given paths
-//!         todo!()
-//!     }
-//!
-//!     fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command {
-//!         // Generate command to run these tests
-//!         todo!()
-//!     }
-//! }
-//! ```
 
 pub mod cargo;
 pub mod default;
@@ -676,34 +651,6 @@ impl TestOutcome {
 /// # Thread Safety
 ///
 /// Frameworks must be `Send + Sync` to allow sharing across async tasks.
-///
-/// # Example Implementation
-///
-/// ```no_run
-/// use async_trait::async_trait;
-/// use offload::framework::*;
-/// use offload::provider::Command;
-/// use std::path::PathBuf;
-///
-/// struct JestFramework { config_path: PathBuf }
-///
-/// #[async_trait]
-/// impl TestFramework for JestFramework {
-///     async fn discover(&self, paths: &[PathBuf], _filters: &str) -> FrameworkResult<Vec<TestRecord>> {
-///         // Run: jest --listTests
-///         // Parse output to extract test files
-///         todo!()
-///     }
-///
-///     fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command {
-///         let test_args: Vec<_> = tests.iter().map(|t| t.id()).collect();
-///         Command::new("jest")
-///             .args(test_args)
-///             .arg("--ci")
-///             .arg("--reporters=jest-junit")
-///     }
-/// }
-/// ```
 #[async_trait]
 pub trait TestFramework: Send + Sync {
     /// Discovers tests in the given paths.

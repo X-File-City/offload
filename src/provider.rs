@@ -47,31 +47,6 @@
 //! 1. Implement [`Sandbox`] for your execution context
 //! 2. Implement [`SandboxProvider`] to create your sandbox type
 //!
-//! ```no_run
-//! use async_trait::async_trait;
-//! use offload::provider::*;
-//! use offload::config::SandboxConfig;
-//!
-//! struct MyCloudSandbox { /* ... */ }
-//!
-//! #[async_trait]
-//! impl Sandbox for MyCloudSandbox {
-//!     fn id(&self) -> &str { todo!() }
-//!     async fn exec_stream(&self, cmd: &Command) -> ProviderResult<OutputStream> { todo!() }
-//!     async fn upload(&self, local: &std::path::Path, remote: &std::path::Path) -> ProviderResult<()> { todo!() }
-//!     async fn download(&self, paths: &[(&std::path::Path, &std::path::Path)]) -> ProviderResult<()> { todo!() }
-//!     async fn terminate(&self) -> ProviderResult<()> { todo!() }
-//! }
-//!
-//! struct MyCloudProvider { /* ... */ }
-//!
-//! #[async_trait]
-//! impl SandboxProvider for MyCloudProvider {
-//!     type Sandbox = MyCloudSandbox;
-//!     async fn create_sandbox(&self, config: &SandboxConfig) -> ProviderResult<Self::Sandbox> { todo!() }
-//! }
-//! ```
-//!
 //! # Error Handling
 //!
 //! All provider operations return [`ProviderResult<T>`], which wraps
@@ -103,20 +78,6 @@ pub type ProviderResult<T> = Result<T, ProviderError>;
 /// - **Fatal**: `CreateFailed`, `NotFound` - unlikely to succeed on retry
 /// - **Resource**: `SandboxExhausted` - need to wait for resources
 ///
-/// # Example
-///
-/// ```no_run
-/// use offload::provider::{ProviderError, ProviderResult};
-///
-/// fn handle_error(result: ProviderResult<()>) {
-///     match result {
-///         Ok(()) => println!("Success"),
-///         Err(ProviderError::Timeout(msg)) => println!("Timed out: {}", msg),
-///         Err(ProviderError::Connection(msg)) => println!("Connection failed: {}", msg),
-///         Err(e) => println!("Error: {}", e),
-///     }
-/// }
-/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderError {
     /// Failed to create a new sandbox instance.
@@ -415,25 +376,6 @@ pub enum OutputLine {
 /// Returned by [`Sandbox::exec_stream`] for processing output in real-time.
 /// The stream yields [`OutputLine`] items as they become available.
 ///
-/// # Example
-///
-/// ```no_run
-/// use futures::StreamExt;
-/// use offload::provider::{Command, OutputLine, Sandbox};
-///
-/// async fn stream_output(sandbox: &impl Sandbox) {
-///     let cmd = Command::new("pytest").arg("-v");
-///     let mut stream = sandbox.exec_stream(&cmd).await.unwrap();
-///
-///     while let Some(line) = stream.next().await {
-///         match line {
-///             OutputLine::Stdout(s) => println!("[out] {}", s),
-///             OutputLine::Stderr(s) => eprintln!("[err] {}", s),
-///             OutputLine::ExitCode(code) => println!("Exit: {}", code),
-///         }
-///     }
-/// }
-/// ```
 pub type OutputStream = Pin<Box<dyn Stream<Item = OutputLine> + Send>>;
 
 /// An isolated execution environment for running commands.
@@ -528,31 +470,6 @@ fn shell_escape(s: &str) -> String {
 /// Providers must be both `Send` and `Sync` to allow sharing across
 /// async tasks via scoped spawns.
 ///
-/// # Example
-///
-/// ```no_run
-/// use std::sync::Arc;
-/// use offload::provider::{SandboxProvider, Sandbox};
-/// use offload::provider::local::LocalProvider;
-/// use offload::config::SandboxConfig;
-///
-/// #[tokio::main]
-/// async fn main() -> anyhow::Result<()> {
-///     let provider = LocalProvider::new(Default::default());
-///
-///     let config = SandboxConfig {
-///         id: "test-sandbox-1".to_string(),
-///         working_dir: Some("/app".to_string()),
-///         env: vec![("DEBUG".to_string(), "1".to_string())],
-///         copy_dirs: vec![],
-///     };
-///
-///     let sandbox = provider.create_sandbox(&config).await?;
-///     println!("Created sandbox: {}", sandbox.id());
-///
-///     Ok(())
-/// }
-/// ```
 #[async_trait]
 pub trait SandboxProvider: Send + Sync {
     /// The concrete [`Sandbox`] type created by this provider.

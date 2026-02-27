@@ -35,46 +35,6 @@
 //! |-----------|-------------|
 //! | [`ShellConnector`] | Executes commands via local shell (`sh -c`) |
 //!
-//! # Example: Using ShellConnector
-//!
-//! ```no_run
-//! use offload::connector::{Connector, ShellConnector};
-//!
-//! # async fn example() -> anyhow::Result<()> {
-//! let connector = ShellConnector::new()
-//!     .with_working_dir("/path/to/project".into())
-//!     .with_timeout(300);
-//!
-//! let result = connector.run("pytest tests/ --collect-only -q").await?;
-//!
-//! if result.exit_code == 0 {
-//!     println!("Tests discovered:\n{}", result.stdout);
-//! }
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! # Example: Streaming Output
-//!
-//! ```no_run
-//! use offload::connector::{Connector, ShellConnector};
-//! use offload::provider::OutputLine;
-//! use futures::StreamExt;
-//!
-//! # async fn example() -> anyhow::Result<()> {
-//! let connector = ShellConnector::new();
-//! let mut stream = connector.run_stream("pytest tests/ -v").await?;
-//!
-//! while let Some(line) = stream.next().await {
-//!     match line {
-//!         OutputLine::Stdout(s) => println!("{}", s),
-//!         OutputLine::Stderr(s) => eprintln!("{}", s),
-//!         OutputLine::ExitCode(code) => println!("Exit: {}", code),
-//!     }
-//! }
-//! # Ok(())
-//! # }
-//! ```
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -198,27 +158,6 @@ pub trait Connector: Send + Sync {
 /// |---------|---------|
 /// | Working directory | Current directory |
 /// | Timeout | 3600 seconds (1 hour) |
-///
-/// # Example
-///
-/// ```no_run
-/// use offload::connector::{Connector, ShellConnector};
-///
-/// # async fn example() -> anyhow::Result<()> {
-/// // Basic usage
-/// let connector = ShellConnector::new();
-/// let result = connector.run("echo 'Hello, World!'").await?;
-/// assert_eq!(result.exit_code, 0);
-///
-/// // With configuration
-/// let connector = ShellConnector::new()
-///     .with_working_dir("/path/to/project".into())
-///     .with_timeout(300); // 5 minute timeout
-///
-/// let result = connector.run("make test").await?;
-/// # Ok(())
-/// # }
-/// ```
 ///
 /// # Platform Support
 ///

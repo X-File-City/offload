@@ -31,38 +31,6 @@
 //! PYTHONPATH = "/path/to/project/src"
 //! ```
 //!
-//! # Example Usage
-//!
-//! ```no_run
-//! use offload::provider::local::LocalProvider;
-//! use offload::provider::{SandboxProvider, Sandbox, Command, OutputLine};
-//! use offload::config::{LocalProviderConfig, SandboxConfig};
-//! use futures::StreamExt;
-//!
-//! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
-//!     let provider = LocalProvider::new(LocalProviderConfig::default());
-//!
-//!     let config = SandboxConfig {
-//!         id: "test-1".to_string(),
-//!         working_dir: None,
-//!         env: vec![],
-//!         copy_dirs: vec![],
-//!     };
-//!
-//!     let sandbox = provider.create_sandbox(&config).await?;
-//!     let mut stream = sandbox.exec_stream(&Command::new("echo").arg("hello")).await?;
-//!     while let Some(line) = stream.next().await {
-//!         match line {
-//!             OutputLine::Stdout(s) => println!("{}", s),
-//!             OutputLine::Stderr(s) => eprintln!("{}", s),
-//!             OutputLine::ExitCode(code) => println!("Exit: {}", code),
-//!         }
-//!     }
-//!
-//!     Ok(())
-//! }
-//! ```
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;

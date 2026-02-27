@@ -50,48 +50,6 @@
 //! - [`Scheduler`]: Distributes tests across available sandboxes
 //! - [`TestRunner`]: Executes tests in a single sandbox
 //! - [`RunResult`]: Aggregated results of the entire test run
-//!
-//! # Example
-//!
-//! ```no_run
-//! use offload::orchestrator::{Orchestrator, SandboxPool};
-//! use offload::config::{load_config, SandboxConfig};
-//! use offload::provider::local::LocalProvider;
-//! use offload::framework::{TestFramework, pytest::PytestFramework};
-//!
-//! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
-//!     let config = load_config(std::path::Path::new("offload.toml"))?;
-//!
-//!     let provider = LocalProvider::new(Default::default());
-//!     let framework = PytestFramework::new(Default::default());
-//!
-//!     // Discover tests using the framework
-//!     let tests = framework.discover(&[], "").await?;
-//!
-//!     // Pre-populate sandbox pool
-//!     let sandbox_config = SandboxConfig {
-//!         id: "sandbox".to_string(),
-//!         working_dir: None,
-//!         env: vec![],
-//!         copy_dirs: vec![],
-//!     };
-//!     let mut sandbox_pool = SandboxPool::new();
-//!     sandbox_pool.populate(config.offload.max_parallel, &provider, &sandbox_config).await?;
-//!
-//!     // Run tests using the orchestrator
-//!     let orchestrator = Orchestrator::new(config, framework, false);
-//!     let result = orchestrator.run_with_tests(&tests, sandbox_pool).await?;
-//!
-//!     if result.success() {
-//!         println!("All tests passed!");
-//!     } else {
-//!         println!("{} tests failed", result.failed);
-//!     }
-//!
-//!     std::process::exit(result.exit_code());
-//! }
-//! ```
 
 pub mod pool;
 pub mod runner;
@@ -217,42 +175,6 @@ impl RunResult {
 /// - `S`: The sandbox type (implements [`Sandbox`](crate::provider::Sandbox))
 /// - `D`: The test framework type
 ///
-/// # Example
-///
-/// ```no_run
-/// use offload::orchestrator::{Orchestrator, SandboxPool};
-/// use offload::config::{load_config, SandboxConfig};
-/// use offload::provider::local::LocalProvider;
-/// use offload::framework::{TestFramework, pytest::PytestFramework};
-///
-/// #[tokio::main]
-/// async fn main() -> anyhow::Result<()> {
-///     let config = load_config(std::path::Path::new("offload.toml"))?;
-///
-///     // Set up components
-///     let provider = LocalProvider::new(Default::default());
-///     let framework = PytestFramework::new(Default::default());
-///
-///     // Discover tests using the framework
-///     let tests = framework.discover(&[], "").await?;
-///
-///     // Pre-populate sandbox pool
-///     let sandbox_config = SandboxConfig {
-///         id: "sandbox".to_string(),
-///         working_dir: None,
-///         env: vec![],
-///         copy_dirs: vec![],
-///     };
-///     let mut sandbox_pool = SandboxPool::new();
-///     sandbox_pool.populate(config.offload.max_parallel, &provider, &sandbox_config).await?;
-///
-///     // Create orchestrator and run tests
-///     let orchestrator = Orchestrator::new(config, framework, false);
-///     let result = orchestrator.run_with_tests(&tests, sandbox_pool).await?;
-///
-///     std::process::exit(result.exit_code());
-/// }
-/// ```
 pub struct Orchestrator<S, D> {
     config: Config,
     framework: D,

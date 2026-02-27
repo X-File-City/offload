@@ -51,46 +51,6 @@
 //! - [`report::print_summary`] - Print test results to console
 //! - [`report::MasterJunitReport`] - JUnit XML report generation
 //!
-//! ## Quick Start
-//!
-//! ```no_run
-//! use offload::config::{load_config, SandboxConfig};
-//! use offload::orchestrator::{Orchestrator, SandboxPool};
-//! use offload::provider::local::LocalProvider;
-//! use offload::framework::{TestFramework, pytest::PytestFramework};
-//!
-//! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
-//!     // Load configuration from TOML file
-//!     let config = load_config(std::path::Path::new("offload.toml"))?;
-//!
-//!     // Create provider (runs tests as local processes)
-//!     let provider = LocalProvider::new(Default::default());
-//!
-//!     // Create framework (finds pytest tests)
-//!     let framework = PytestFramework::new(Default::default());
-//!
-//!     // Discover tests using the framework
-//!     let tests = framework.discover(&[], "").await?;
-//!
-//!     // Pre-populate sandbox pool
-//!     let sandbox_config = SandboxConfig {
-//!         id: "sandbox".to_string(),
-//!         working_dir: None,
-//!         env: vec![],
-//!         copy_dirs: vec![],
-//!     };
-//!     let mut sandbox_pool = SandboxPool::new();
-//!     sandbox_pool.populate(config.offload.max_parallel, &provider, &sandbox_config).await?;
-//!
-//!     // Run tests using the orchestrator
-//!     let orchestrator = Orchestrator::new(config, framework, false);
-//!     let result = orchestrator.run_with_tests(&tests, sandbox_pool).await?;
-//!
-//!     std::process::exit(result.exit_code());
-//! }
-//! ```
-//!
 //! ## Configuration
 //!
 //! Offload is configured via TOML files. See [`config`] module for schema details.
