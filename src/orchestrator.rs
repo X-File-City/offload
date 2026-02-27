@@ -98,6 +98,7 @@ pub mod pool;
 pub mod runner;
 pub mod scheduler;
 
+use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -428,6 +429,10 @@ where
         // Collect sandboxes back after use for termination
         let sandboxes_for_cleanup = Arc::new(Mutex::new(Vec::new()));
 
+        // Truncate output log file (callbacks will open in append mode)
+        let output_log_path = output_dir.join("offload-out");
+        let _ = std::fs::File::create(&output_log_path);
+
         // Run tests in parallel
         // Execute batches concurrently using scoped spawns (no 'static required)
         tokio_scoped::scope(|scope| {
@@ -440,6 +445,7 @@ where
                 let all_passed = Arc::clone(&all_passed);
                 let cancellation_token = cancellation_token.clone();
                 let sandboxes_for_cleanup = Arc::clone(&sandboxes_for_cleanup);
+                let output_log_path = output_log_path.clone();
 
                 scope.spawn(async move {
                     // Early exit if all tests have already passed
@@ -465,12 +471,23 @@ where
                     .with_junit_report(Arc::clone(&junit_report))
                     .with_parts_dir(parts_dir);
 
-                    // Enable output callback only in verbose mode
-                    if config.offload.stream_output && verbose {
-                        let callback: OutputCallback = Arc::new(|test_id, line| match line {
-                            OutputLine::Stdout(s) => println!("[{}] {}", test_id, s),
-                            OutputLine::Stderr(s) => eprintln!("[{}] {}", test_id, s),
-                            OutputLine::ExitCode(_) => {}
+                    // Log test output to offload-out file
+                    {
+                        let path = output_log_path.clone();
+                        let callback: OutputCallback = Arc::new(move |test_id, line| {
+                            let msg = match line {
+                                OutputLine::Stdout(s) => format!("[{}] {}\n", test_id, s),
+                                OutputLine::Stderr(s) => {
+                                    format!("[{}] [stderr] {}\n", test_id, s)
+                                }
+                                OutputLine::ExitCode(_) => return,
+                            };
+                            if let Ok(mut f) = std::fs::OpenOptions::new()
+                                .append(true)
+                                .open(&path)
+                            {
+                                let _ = f.write_all(msg.as_bytes());
+                            }
                         });
                         runner = runner.with_output_callback(callback);
                     }
