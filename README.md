@@ -92,6 +92,21 @@ After execution, offload collects results via one of two mechanisms:
 | 1 | One or more tests failed, or tests were not run |
 | 2 | All tests passed, but some were flaky (passed only on retry) |
 
+### Output Files
+
+After a test run, offload writes per-batch log files to `{output_dir}/logs/`:
+
+| File | Meaning |
+|------|---------|
+| `batch-{N}.success` | All tests in batch N passed |
+| `batch-{N}.failure` | One or more tests in batch N failed |
+| `batch-{N}.error` | Infrastructure error (e.g., sandbox failure, JUnit download failure) |
+| `batch-{N}.cancelled` | Batch was cancelled before completion (e.g., early stopping) |
+
+Each file contains stdout and stderr from all tests in that batch. Stderr lines are prefixed with `[stderr]`.
+
+The `{output_dir}` defaults to `test-results` and is configurable via `[report] output_dir`.
+
 ## Quick Start
 
 1. Initialize a configuration file:
