@@ -169,7 +169,6 @@ Configuration is stored in a TOML file (default: `offload.toml`).
 | `max_parallel` | integer | `10` | Maximum number of parallel sandboxes |
 | `test_timeout_secs` | integer | `900` | Timeout per test batch in seconds |
 | `working_dir` | string | (cwd) | Working directory for test execution |
-| `stream_output` | boolean | `false` | Stream test output in real-time |
 | `sandbox_project_root` | string | required | Project root path on the remote sandbox (exported as `OFFLOAD_ROOT`) |
 
 ### `[provider]` -- Execution Provider
@@ -269,7 +268,6 @@ Example configuration files are included in the repository root.
 [offload]
 max_parallel = 4
 test_timeout_secs = 300
-stream_output = true
 sandbox_project_root = "."
 
 [provider]
@@ -292,7 +290,6 @@ output_dir = "test-results"
 [offload]
 max_parallel = 4
 test_timeout_secs = 600
-stream_output = true
 sandbox_project_root = "/app"
 
 [provider]
@@ -328,7 +325,6 @@ output_dir = "test-results"
 [offload]
 max_parallel = 4
 test_timeout_secs = 600
-stream_output = true
 sandbox_project_root = "/app"
 
 [provider]
@@ -352,7 +348,6 @@ output_dir = "test-results"
 [offload]
 max_parallel = 40
 test_timeout_secs = 60
-stream_output = true
 sandbox_project_root = "/code/mng"
 
 [provider]

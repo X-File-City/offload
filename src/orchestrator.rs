@@ -482,11 +482,15 @@ where
                                 }
                                 OutputLine::ExitCode(_) => return,
                             };
-                            if let Ok(mut f) = std::fs::OpenOptions::new()
-                                .append(true)
-                                .open(&path)
-                            {
-                                let _ = f.write_all(msg.as_bytes());
+                            match std::fs::OpenOptions::new().append(true).open(&path) {
+                                Ok(mut f) => {
+                                    if let Err(e) = f.write_all(msg.as_bytes()) {
+                                        warn!("Failed to write to offload-out: {}", e);
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("Failed to open offload-out: {}", e);
+                                }
                             }
                         });
                         runner = runner.with_output_callback(callback);
