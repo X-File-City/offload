@@ -227,6 +227,59 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
     ///
     /// The `output_id` is passed to the output callback to identify the source.
     /// Returns `Ok(None)` if cancelled before completion.
+    /// Process a single output line from the stream.
+    ///
+    /// If the line is a JSON-encoded `JsonExecResult` (the default provider
+    /// protocol), decode it and emit the contained stdout/stderr lines to the
+    /// callback individually. Otherwise pass the line through as-is.
+    ///
+    /// Returns `Some(JsonExecResult)` when a JSON result was decoded, so the
+    /// caller can use the parsed exit code and skip heuristic inference.
+    fn process_output_line(
+        line: &OutputLine,
+        output_id: &str,
+        stdout: &mut String,
+        stderr: &mut String,
+        callback: &Option<OutputCallback>,
+    ) -> Option<JsonExecResult> {
+        match line {
+            OutputLine::Stdout(s) => {
+                // Try to decode the default provider JSON protocol
+                if s.trim().starts_with('{')
+                    && let Ok(parsed) = serde_json::from_str::<JsonExecResult>(s)
+                {
+                    // Emit decoded stdout lines to callback
+                    if let Some(cb) = callback {
+                        for decoded_line in parsed.stdout.lines() {
+                            cb(output_id, &OutputLine::Stdout(decoded_line.to_string()));
+                        }
+                        for decoded_line in parsed.stderr.lines() {
+                            cb(output_id, &OutputLine::Stderr(decoded_line.to_string()));
+                        }
+                    }
+                    stdout.push_str(&parsed.stdout);
+                    stderr.push_str(&parsed.stderr);
+                    return Some(parsed);
+                }
+                // Not JSON — pass through as-is
+                if let Some(cb) = callback {
+                    cb(output_id, line);
+                }
+                stdout.push_str(s);
+                stdout.push('\n');
+            }
+            OutputLine::Stderr(s) => {
+                if let Some(cb) = callback {
+                    cb(output_id, line);
+                }
+                stderr.push_str(s);
+                stderr.push('\n');
+            }
+            OutputLine::ExitCode(_) => {}
+        }
+        None
+    }
+
     async fn exec_with_streaming(
         &mut self,
         cmd: &crate::provider::Command,
@@ -235,6 +288,7 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
         let start = std::time::Instant::now();
         let mut stdout = String::new();
         let mut stderr = String::new();
+        let mut json_result: Option<JsonExecResult> = None;
 
         let mut stream = self.sandbox.exec_stream(cmd).await?;
 
@@ -249,22 +303,14 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
                     line = stream.next() => {
                         match line {
                             Some(line) => {
-                                // Call the output callback if set
-                                if let Some(ref callback) = self.output_callback {
-                                    callback(output_id, &line);
-                                }
-
-                                // Collect output
-                                match &line {
-                                    OutputLine::Stdout(s) => {
-                                        stdout.push_str(s);
-                                        stdout.push('\n');
-                                    }
-                                    OutputLine::Stderr(s) => {
-                                        stderr.push_str(s);
-                                        stderr.push('\n');
-                                    }
-                                    OutputLine::ExitCode(_) => {}
+                                if let Some(parsed) = Self::process_output_line(
+                                    &line,
+                                    output_id,
+                                    &mut stdout,
+                                    &mut stderr,
+                                    &self.output_callback,
+                                ) {
+                                    json_result = Some(parsed);
                                 }
                             }
                             None => break, // Stream ended
@@ -275,38 +321,24 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
         } else {
             // No cancellation token, process normally
             while let Some(line) = stream.next().await {
-                // Call the output callback if set
-                if let Some(ref callback) = self.output_callback {
-                    callback(output_id, &line);
-                }
-
-                // Collect output
-                match &line {
-                    OutputLine::Stdout(s) => {
-                        stdout.push_str(s);
-                        stdout.push('\n');
-                    }
-                    OutputLine::Stderr(s) => {
-                        stderr.push_str(s);
-                        stderr.push('\n');
-                    }
-                    OutputLine::ExitCode(_) => {}
+                if let Some(parsed) = Self::process_output_line(
+                    &line,
+                    output_id,
+                    &mut stdout,
+                    &mut stderr,
+                    &self.output_callback,
+                ) {
+                    json_result = Some(parsed);
                 }
             }
         }
 
-        // Try to parse JSON result from stdout (default provider protocol)
-        // This handles default sandboxes that return JSON with exit_code, stdout, stderr
-        if let Some(json_line) = stdout
-            .lines()
-            .rev()
-            .find(|line| line.trim().starts_with('{'))
-            && let Ok(parsed) = serde_json::from_str::<JsonExecResult>(json_line)
-        {
+        // Use parsed JSON result if available (default provider protocol)
+        if let Some(parsed) = json_result {
             return Ok(Some(crate::provider::ExecResult {
                 exit_code: parsed.exit_code,
-                stdout: parsed.stdout,
-                stderr: parsed.stderr,
+                stdout,
+                stderr,
                 duration: start.elapsed(),
             }));
         }
