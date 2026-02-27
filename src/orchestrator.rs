@@ -113,7 +113,7 @@ use crate::provider::{OutputLine, Sandbox};
 use crate::report::{MasterJunitReport, load_test_durations, print_summary};
 
 pub use pool::SandboxPool;
-pub use runner::{OutputCallback, TestRunner};
+pub use runner::{BatchOutcome, OutputCallback, TestRunner};
 pub use scheduler::Scheduler;
 
 /// Aggregated results of an entire test run.
@@ -505,7 +505,7 @@ where
 
                     // Run all tests in batch with a single command
                     match runner.run_tests(&batch).await {
-                        Ok(true) => {
+                        Ok(BatchOutcome::Success) | Ok(BatchOutcome::Failure) => {
                             // Check shared report for early stopping
                             if let Ok(report) = junit_report.lock()
                                 && report.all_passed()
@@ -520,7 +520,7 @@ where
                                 cancellation_token.cancel();
                             }
                         }
-                        Ok(false) => {
+                        Ok(BatchOutcome::Cancelled) => {
                             // Batch was cancelled - no results to record
                             debug!("Batch {} was cancelled", batch_idx);
                         }

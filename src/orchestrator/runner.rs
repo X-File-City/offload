@@ -56,6 +56,11 @@ fn count_testcases_in_xml(xml: &str) -> usize {
     xml.matches("<testcase ").count()
 }
 
+/// Check if a JUnit XML string contains any test failures or errors.
+fn has_failures_in_xml(xml: &str) -> bool {
+    xml.contains("<failure") || xml.contains("<error")
+}
+
 /// JSON result format from default provider sandboxes.
 #[derive(serde::Deserialize)]
 struct JsonExecResult {
@@ -85,6 +90,17 @@ struct JsonExecResult {
 /// });
 /// ```
 pub type OutputCallback = Arc<dyn Fn(&str, &OutputLine) + Send + Sync>;
+
+/// Outcome of executing a single batch of tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchOutcome {
+    /// Execution completed; all tests in the batch passed.
+    Success,
+    /// Execution completed; one or more tests in the batch failed.
+    Failure,
+    /// Batch was cancelled before completion (e.g., early stopping).
+    Cancelled,
+}
 
 /// Executes tests within a single sandbox.
 ///
@@ -323,9 +339,11 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
     ///
     /// # Returns
     ///
-    /// `Ok(true)` on successful execution, `Ok(false)` if cancelled early,
-    /// or an error if execution failed.
-    pub async fn run_tests(&mut self, tests: &[TestInstance<'_>]) -> Result<bool> {
+    /// - `Ok(BatchOutcome::Success)` if execution completed and all tests passed
+    /// - `Ok(BatchOutcome::Failure)` if execution completed but one or more tests failed
+    /// - `Ok(BatchOutcome::Cancelled)` if the batch was cancelled before completion
+    /// - `Err(...)` if execution failed due to an infrastructure error
+    pub async fn run_tests(&mut self, tests: &[TestInstance<'_>]) -> Result<BatchOutcome> {
         let start = std::time::Instant::now();
         let expected_count = tests.len();
         let sandbox_id = self.sandbox.id().to_string();
@@ -389,7 +407,7 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
                     "[BATCH CANCELLED] Sandbox {} was cancelled before completion ({} tests lost)",
                     sandbox_id, expected_count
                 );
-                return Ok(false);
+                return Ok(BatchOutcome::Cancelled);
             }
         };
 
@@ -405,7 +423,7 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
         let unique_count = unique_test_ids.len();
 
         // Download JUnit XML and add to shared report
-        match self.try_download_results(unique_count).await {
+        let batch_had_failures = match self.try_download_results(unique_count).await {
             Some((xml_content, actual_count)) => {
                 info!(
                     "[BATCH RESULTS] Sandbox {} downloaded junit.xml: total={}, unique={}, actual={}, bytes={}",
@@ -450,6 +468,7 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
                 } else {
                     warn!("[BATCH WARN] No junit report configured for {}", sandbox_id);
                 }
+                has_failures_in_xml(&xml_content)
             }
             None => {
                 return Err(anyhow::anyhow!(
@@ -458,9 +477,13 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
                     expected_count
                 ));
             }
-        }
+        };
 
-        Ok(true)
+        if batch_had_failures {
+            Ok(BatchOutcome::Failure)
+        } else {
+            Ok(BatchOutcome::Success)
+        }
     }
 
     /// Try to download JUnit results from the sandbox.
@@ -567,5 +590,28 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
         }
 
         Some((content, actual_count))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_has_failures_in_xml_no_failures() {
+        let xml = r#"<testsuite><testcase name="t1" /></testsuite>"#;
+        assert!(!has_failures_in_xml(xml));
+    }
+
+    #[test]
+    fn test_has_failures_in_xml_with_failure() {
+        let xml = r#"<testsuite><testcase name="t1"><failure message="oops">trace</failure></testcase></testsuite>"#;
+        assert!(has_failures_in_xml(xml));
+    }
+
+    #[test]
+    fn test_has_failures_in_xml_with_error() {
+        let xml = r#"<testsuite><testcase name="t1"><error message="boom">trace</error></testcase></testsuite>"#;
+        assert!(has_failures_in_xml(xml));
     }
 }
