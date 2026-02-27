@@ -5,7 +5,6 @@ test_id_format = "{classname} {name}"
 [offload]
 max_parallel = 4
 test_timeout_secs = 600
-stream_output = true
 sandbox_project_root = "/app"
 
 [provider]
