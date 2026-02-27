@@ -81,8 +81,8 @@ pub struct OffloadConfig {
     /// Stream test output in real-time instead of buffering.
     /// Deprecated: kept only for backward compatibility with existing TOML
     /// files. This field is ignored — output is always logged to
-    /// `{output_dir}/offload-out`. TODO: remove this field once external
-    /// configs have been updated.
+    /// per-runner files in `{output_dir}/logs/`. TODO: remove this field
+    /// once external configs have been updated.
     #[serde(default)]
     pub stream_output: bool,
 
