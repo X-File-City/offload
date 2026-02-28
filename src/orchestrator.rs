@@ -97,19 +97,19 @@
 pub mod pool;
 pub mod runner;
 pub mod scheduler;
+pub mod spawn;
 
-use std::io::Write;
+use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
 use crate::framework::{TestFramework, TestInstance, TestRecord, TestResult};
-use crate::provider::{OutputLine, Sandbox};
+use crate::provider::Sandbox;
 use crate::report::{MasterJunitReport, load_test_durations, print_summary};
 
 pub use pool::SandboxPool;
@@ -391,15 +391,8 @@ where
             scheduler.schedule_lpt(&tests_to_run, &durations, std::time::Duration::from_secs(1))
         };
 
-        // Take sandboxes from pool - must match batch count
+        // Take sandboxes from pool
         let sandboxes = sandbox_pool.take_all();
-        assert_eq!(
-            sandboxes.len(),
-            batches.len(),
-            "sandbox count ({}) must match batch count ({})",
-            sandboxes.len(),
-            batches.len()
-        );
 
         // Log batch distribution
         info!(
@@ -427,7 +420,7 @@ where
         let cancellation_token = CancellationToken::new();
 
         // Collect sandboxes back after use for termination
-        let sandboxes_for_cleanup = Arc::new(Mutex::new(Vec::new()));
+        let sandboxes_for_cleanup = Arc::new(std::sync::Mutex::new(Vec::new()));
 
         // Create/truncate logs directory for per-runner output
         let logs_dir = output_dir.join("logs");
@@ -438,141 +431,28 @@ where
         }
         std::fs::create_dir_all(&logs_dir).ok();
 
-        // Run tests in parallel
-        // Execute batches concurrently using scoped spawns (no 'static required)
+        // Queue-based batching: workers pull from a shared queue
+        let queue = Arc::new(std::sync::Mutex::new(VecDeque::from(batches)));
+        let batch_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        // Run tests in parallel using queue-based workers
         tokio_scoped::scope(|scope| {
-            for (batch_idx, (sandbox, batch)) in sandboxes.into_iter().zip(batches).enumerate() {
-                let framework = &self.framework;
-                let config = &self.config;
-                let progress = &progress;
-                let verbose = self.verbose;
-                let junit_report = Arc::clone(&junit_report);
-                let all_passed = Arc::clone(&all_passed);
-                let cancellation_token = cancellation_token.clone();
-                let sandboxes_for_cleanup = Arc::clone(&sandboxes_for_cleanup);
-                let logs_dir = logs_dir.clone();
-
-                scope.spawn(async move {
-                    // Early exit if all tests have already passed
-                    if all_passed.load(Ordering::SeqCst) {
-                        let test_ids: Vec<_> = batch.iter().map(|t| t.id()).collect();
-                        info!(
-                            "EARLY STOP: Skipping batch {} ({} tests) - all tests already passed",
-                            batch_idx,
-                            batch.len()
-                        );
-                        debug!("Skipped tests: {:?}", test_ids);
-                        sandboxes_for_cleanup.lock().await.push(sandbox);
-                        return;
-                    }
-
-                    let parts_dir = config.report.output_dir.join("junit-parts");
-                    let mut runner = TestRunner::new(
-                        sandbox,
-                        framework,
-                        Duration::from_secs(config.offload.test_timeout_secs),
-                    )
-                    .with_cancellation_token(cancellation_token.clone())
-                    .with_junit_report(Arc::clone(&junit_report))
-                    .with_parts_dir(parts_dir);
-
-                    // Log test output to per-runner log file
-                    {
-                        let log_path = logs_dir.join(format!("batch-{}.log", batch_idx));
-                        match std::fs::File::create(&log_path) {
-                            Ok(file) => {
-                                let log_file = Arc::new(std::sync::Mutex::new(file));
-                                let callback: OutputCallback =
-                                    Arc::new(move |_test_id, line| {
-                                        let msg = match line {
-                                            OutputLine::Stdout(s) => {
-                                                format!("{}\n", s)
-                                            }
-                                            OutputLine::Stderr(s) => {
-                                                format!("[stderr] {}\n", s)
-                                            }
-                                            OutputLine::ExitCode(_) => return,
-                                        };
-                                        if let Ok(mut f) = log_file.lock()
-                                            && let Err(e) = f.write_all(msg.as_bytes())
-                                        {
-                                            warn!(
-                                                "Failed to write to batch log: {}",
-                                                e
-                                            );
-                                        }
-                                    });
-                                runner = runner.with_output_callback(callback);
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "Failed to create batch log {}: {}",
-                                    log_path.display(),
-                                    e
-                                );
-                            }
-                        }
-                    }
-
-                    // Log test starts in verbose mode
-                    if verbose {
-                        for test in &batch {
-                            println!("Running: {}", test.id());
-                        }
-                    }
-
-                    // Run all tests in batch with a single command
-                    let log_src = logs_dir.join(format!("batch-{}.log", batch_idx));
-                    let outcome = runner.run_tests(&batch).await;
-
-                    // Rename log file to reflect outcome
-                    let extension = match &outcome {
-                        Ok(BatchOutcome::Success) => "success",
-                        Ok(BatchOutcome::Failure) => "failure",
-                        Ok(BatchOutcome::Cancelled) => "cancelled",
-                        Err(_) => "error",
-                    };
-
-                    if log_src.exists() {
-                        let log_dst =
-                            logs_dir.join(format!("batch-{}.{}", batch_idx, extension));
-                        if let Err(e) = std::fs::rename(&log_src, &log_dst) {
-                            warn!("Failed to rename batch log: {}", e);
-                        }
-                    }
-
-                    // Handle outcome-specific logic
-                    match &outcome {
-                        Ok(BatchOutcome::Success) | Ok(BatchOutcome::Failure) => {
-                            // Check shared report for early stopping
-                            if let Ok(report) = junit_report.lock()
-                                && report.all_passed()
-                                && !all_passed.load(Ordering::SeqCst)
-                            {
-                                info!(
-                                    "EARLY STOP TRIGGERED: All {} tests have passed after batch {} completed. Cancelling remaining batches.",
-                                    total_tests_to_run,
-                                    batch_idx
-                                );
-                                all_passed.store(true, Ordering::SeqCst);
-                                cancellation_token.cancel();
-                            }
-                        }
-                        Ok(BatchOutcome::Cancelled) => {
-                            debug!("Batch {} was cancelled", batch_idx);
-                        }
-                        Err(e) => {
-                            error!("Batch execution error: {}", e);
-                        }
-                    }
-
-                    // Update progress for completed batch
-                    progress.inc(batch.len() as u64);
-
-                    // Collect sandbox for cleanup
-                    let sandbox = runner.into_sandbox();
-                    sandboxes_for_cleanup.lock().await.push(sandbox);
-                });
+            for sandbox in sandboxes {
+                let cfg = spawn::SpawnConfig {
+                    config: &self.config,
+                    framework: &self.framework,
+                    queue: Arc::clone(&queue),
+                    progress: &progress,
+                    total_tests_to_run,
+                    all_passed: Arc::clone(&all_passed),
+                    cancellation_token: cancellation_token.clone(),
+                    sandboxes_for_cleanup: Arc::clone(&sandboxes_for_cleanup),
+                    junit_report: Arc::clone(&junit_report),
+                    logs_dir: logs_dir.clone(),
+                    batch_counter: Arc::clone(&batch_counter),
+                    verbose: self.verbose,
+                };
+                scope.spawn(spawn::spawn_task(cfg, sandbox));
             }
         });
 
@@ -648,7 +528,13 @@ where
         print_summary(&run_result);
 
         // Terminate all sandboxes in parallel (after printing results)
-        let sandboxes: Vec<_> = sandboxes_for_cleanup.lock().await.drain(..).collect();
+        let sandboxes: Vec<_> = match sandboxes_for_cleanup.lock() {
+            Ok(mut guard) => guard.drain(..).collect(),
+            Err(e) => {
+                error!("sandbox cleanup mutex poisoned: {}", e);
+                Vec::new()
+            }
+        };
         let terminate_futures = sandboxes.into_iter().map(|sandbox| async move {
             if let Err(e) = sandbox.terminate().await {
                 warn!("Failed to terminate sandbox {}: {}", sandbox.id(), e);
