@@ -1,56 +1,4 @@
-//! Test execution engine and orchestration.
-//!
-//! This module contains the core execution logic that coordinates test
-//! discovery, distribution across sandboxes, execution, retry handling,
-//! and result collection.
-//!
-//! # Architecture
-//!
-//! ```text
-//!   Framework                 Scheduler                Provider
-//!       │                         │                        │
-//!       │ discover()              │                        │
-//!       ▼                         │                        │
-//!  Vec<TestRecord>                │                        │
-//!       │                         │                        │
-//!       │ expand to TestInstances │                        │
-//!       ▼                         │                        │
-//!  Vec<TestInstance> ────────────►│ schedule_random()      │
-//!                                 ▼                        │
-//!                        Vec<Vec<TestInstance>> (batches)  │
-//!                                 │                        │
-//!                                 │    create_sandbox() ──►│
-//!                                 │                        ▼
-//!                                 │                     Sandbox
-//!                                 │                        │
-//!                                 └────────┬───────────────┘
-//!                                          ▼
-//!                                     TestRunner
-//!                                          │
-//!   Framework ◄─── produce_command() ──────┤
-//!       │                                  │
-//!       │                        Sandbox.exec(cmd)
-//!       │                                  │
-//!       ▼
-//!  Vec<TestResult> ──► TestRecord.record_result()
-//! ```
-//!
-//! # Execution Flow
-//!
-//! 1. **Discovery**: Find tests using the configured framework
-//! 2. **Expansion**: Create parallel retry instances for each test
-//! 3. **Scheduling**: Distribute test instances into batches across sandboxes
-//! 4. **Execution**: Run test batches in parallel sandboxes
-//! 5. **Aggregation**: Combine results (any pass = pass, detect flaky tests)
-//! 6. **Reporting**: Print summary and generate JUnit XML
-//!
-//! # Key Components
-//!
-//! - [`Orchestrator`]: Main entry point coordinating the test run
-//! - [`Scheduler`]: Distributes tests across available sandboxes
-//! - [`TestRunner`]: Executes tests in a single sandbox
-//! - [`RunResult`]: Aggregated results of the entire test run
-
+//! Test orchestration: discovery, scheduling, parallel execution, and result aggregation.
 pub mod pool;
 pub mod runner;
 pub mod scheduler;
@@ -125,26 +73,6 @@ impl RunResult {
     /// A run is successful if no tests failed and all scheduled tests
     /// were executed. Flaky tests are considered successful (they passed
     /// on retry).
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::orchestrator::RunResult;
-    /// use std::time::Duration;
-    ///
-    /// let result = RunResult {
-    ///     total_tests: 100,
-    ///     passed: 95,
-    ///     failed: 0,
-    ///     skipped: 5,
-    ///     flaky: 2,
-    ///     not_run: 0,
-    ///     duration: Duration::from_secs(60),
-    ///     results: vec![],
-    /// };
-    ///
-    /// assert!(result.success());
-    /// ```
     pub fn success(&self) -> bool {
         self.failed == 0 && self.not_run == 0
     }

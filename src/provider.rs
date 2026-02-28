@@ -1,57 +1,4 @@
 //! Provider traits and implementations for sandbox execution environments.
-//!
-//! This module defines the core abstractions for executing tests in isolated
-//! environments. The provider system is designed to be pluggable, allowing
-//! offload to work with any execution backend: local processes, or
-//! custom cloud providers.
-//!
-//! # Architecture
-//!
-//! The provider system has two main traits:
-//!
-//! - [`SandboxProvider`] - Factory that creates sandbox instances
-//! - [`Sandbox`] - An isolated execution environment for running commands
-//!
-//! ```text
-//! ┌─────────────────────────────────────────────────────────────┐
-//! │                     SandboxProvider                          │
-//! │  (creates sandboxes)                                        │
-//! │                                                              │
-//! │  create_sandbox() ──────────► Sandbox                       │
-//! └────────────────────────────────┼────────────────────────────┘
-//!                                  │
-//!                                  ▼
-//! ┌─────────────────────────────────────────────────────────────┐
-//! │                        Sandbox                               │
-//! │  (isolated execution environment)                           │
-//! │                                                              │
-//! │  exec_stream(Command) ───► OutputStream                     │
-//! │  upload(local, remote)                                      │
-//! │  download(remote, local)                                    │
-//! │  terminate()                                                 │
-//! └─────────────────────────────────────────────────────────────┘
-//! ```
-//!
-//! # Built-in Providers
-//!
-//! | Provider | Module | Description |
-//! |----------|--------|-------------|
-//! | Local | [`local`] | Run tests as local child processes |
-//! | Default | [`default`] | Run tests via custom shell commands |
-//! | Modal | [`modal`] | Run tests on Modal cloud sandboxes |
-//!
-//! # Implementing a Custom Provider
-//!
-//! To add support for a new execution environment:
-//!
-//! 1. Implement [`Sandbox`] for your execution context
-//! 2. Implement [`SandboxProvider`] to create your sandbox type
-//!
-//! # Error Handling
-//!
-//! All provider operations return [`ProviderResult<T>`], which wraps
-//! [`ProviderError`]. Errors are categorized by failure type to enable
-//! appropriate handling (e.g., retry on timeout, fail fast on auth errors).
 
 pub mod default;
 pub mod local;
@@ -137,23 +84,6 @@ pub enum ProviderError {
 ///
 /// Commands are built using a fluent builder API and can be converted
 /// to shell strings for execution.
-///
-/// # Example
-///
-/// ```
-/// use offload::provider::Command;
-///
-/// let cmd = Command::new("pytest")
-///     .arg("-v")
-///     .arg("--tb=short")
-///     .args(["tests/test_math.py::test_add", "tests/test_math.py::test_sub"])
-///     .working_dir("/app")
-///     .env("PYTHONPATH", "/app/src")
-///     .timeout(300);
-///
-/// assert_eq!(cmd.program, "pytest");
-/// assert_eq!(cmd.args.len(), 4);
-/// ```
 #[derive(Debug, Clone)]
 pub struct Command {
     /// The program/executable to run.
@@ -180,13 +110,6 @@ pub struct Command {
 
 impl Command {
     /// Creates a new command with the given program.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::provider::Command;
-    /// let cmd = Command::new("python");
-    /// ```
     pub fn new(program: impl Into<String>) -> Self {
         Self {
             program: program.into(),
@@ -198,27 +121,12 @@ impl Command {
     }
 
     /// Adds a single argument to the command.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::provider::Command;
-    /// let cmd = Command::new("cargo").arg("test").arg("--release");
-    /// ```
     pub fn arg(mut self, arg: impl Into<String>) -> Self {
         self.args.push(arg.into());
         self
     }
 
     /// Adds multiple arguments to the command.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::provider::Command;
-    /// let tests = vec!["test_a", "test_b", "test_c"];
-    /// let cmd = Command::new("pytest").args(tests);
-    /// ```
     pub fn args<I, S>(mut self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -229,13 +137,6 @@ impl Command {
     }
 
     /// Sets the working directory for command execution.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::provider::Command;
-    /// let cmd = Command::new("make").arg("test").working_dir("/project");
-    /// ```
     pub fn working_dir(mut self, dir: impl Into<String>) -> Self {
         self.working_dir = Some(dir.into());
         self
@@ -244,15 +145,6 @@ impl Command {
     /// Adds an environment variable for this command.
     ///
     /// Can be called multiple times to add multiple variables.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::provider::Command;
-    /// let cmd = Command::new("pytest")
-    ///     .env("PYTHONPATH", "/app")
-    ///     .env("DEBUG", "1");
-    /// ```
     pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.push((key.into(), value.into()));
         self
@@ -261,13 +153,6 @@ impl Command {
     /// Sets the execution timeout in seconds.
     ///
     /// Commands exceeding this limit will be terminated.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::provider::Command;
-    /// let cmd = Command::new("pytest").timeout(300); // 5 minute timeout
-    /// ```
     pub fn timeout(mut self, secs: u64) -> Self {
         self.timeout_secs = Some(secs);
         self
@@ -276,14 +161,6 @@ impl Command {
     /// Converts the command to a shell-executable string.
     ///
     /// The program and arguments are properly escaped for shell execution.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::provider::Command;
-    /// let cmd = Command::new("echo").arg("hello world");
-    /// assert_eq!(cmd.to_shell_string(), "echo 'hello world'");
-    /// ```
     pub fn to_shell_string(&self) -> String {
         let mut parts = vec![shell_escape(&self.program)];
         for arg in &self.args {
@@ -296,26 +173,6 @@ impl Command {
 /// Result of executing a command in a sandbox.
 ///
 /// Contains the exit code, captured output, and execution duration.
-///
-/// # Example
-///
-/// ```
-/// use offload::provider::ExecResult;
-/// use std::time::Duration;
-///
-/// let result = ExecResult {
-///     exit_code: 0,
-///     stdout: "All tests passed".to_string(),
-///     stderr: String::new(),
-///     duration: Duration::from_secs(5),
-/// };
-///
-/// if result.success() {
-///     println!("Tests passed in {:?}", result.duration);
-/// } else {
-///     println!("Tests failed with code {}", result.exit_code);
-/// }
-/// ```
 #[derive(Debug, Clone)]
 pub struct ExecResult {
     /// Exit code of the command.
@@ -336,21 +193,6 @@ pub struct ExecResult {
 
 impl ExecResult {
     /// Returns `true` if the command succeeded (exit code 0).
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::provider::ExecResult;
-    /// use std::time::Duration;
-    ///
-    /// let result = ExecResult {
-    ///     exit_code: 0,
-    ///     stdout: "All tests passed".into(),
-    ///     stderr: String::new(),
-    ///     duration: Duration::from_secs(5),
-    /// };
-    /// assert!(result.success());
-    /// ```
     pub fn success(&self) -> bool {
         self.exit_code == 0
     }

@@ -1,13 +1,4 @@
-//! Test runner for executing tests in a sandbox.
-//!
-//! The [`TestRunner`] is responsible for executing tests within a single
-//! sandbox and parsing their results.
-//!
-//! # Features
-//!
-//! - **Test execution**: Run tests with [`run_tests`](TestRunner::run_tests)
-//! - **Output callback**: Real-time output via callback with [`with_output_callback`](TestRunner::with_output_callback)
-//! - **Result parsing**: Automatic parsing via the framework
+//! Test runner — executes test batches within a single sandbox.
 
 use std::sync::Arc;
 use std::time::Duration;

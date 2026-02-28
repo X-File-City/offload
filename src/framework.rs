@@ -1,38 +1,4 @@
-//! Test framework traits and implementations.
-//!
-//! This module provides a framework-agnostic interface for collecting tests
-//! and generating execution commands. It supports pytest, cargo test, and custom
-//! test frameworks via the [`TestFramework`] trait.
-//!
-//! # Architecture
-//!
-//! The framework system has two main responsibilities:
-//!
-//! 1. **Discover**: Find tests in the codebase ([`TestFramework::discover`])
-//! 2. **Run**: Generate commands to execute tests ([`TestFramework::produce_test_execution_command`])
-//!
-//! ```text
-//! ┌─────────────────────────────────────────────────────────────────┐
-//! │                     TestFramework                                │
-//! ├─────────────────────────────────────────────────────────────────┤
-//! │                                                                  │
-//! │  discover(&paths) ──────────► Vec<TestRecord>                   │
-//! │                                    │                             │
-//! │                                    ▼                             │
-//! │  produce_test_execution_command(&tests) ──► Command             │
-//! │                                                                  │
-//! └─────────────────────────────────────────────────────────────────┘
-//! ```
-//!
-//! # Built-in Frameworks
-//!
-//! | Implementation | Target | Discovery Method |
-//! |----------------|--------|------------------|
-//! | [`pytest::PytestFramework`] | pytest | `pytest --collect-only -q` |
-//! | [`cargo::CargoFramework`] | Rust | `cargo test --list` |
-//! | [`default::DefaultFramework`] | Any | Custom shell commands |
-//!
-
+//! Test framework traits and implementations for discovery, execution, and result parsing.
 pub mod cargo;
 pub mod default;
 pub mod pytest;
@@ -95,17 +61,6 @@ pub enum FrameworkError {
 ///
 /// Results are stored in a `Mutex` to allow concurrent updates from
 /// multiple test executions.
-///
-/// # Example
-///
-/// ```
-/// use offload::framework::TestRecord;
-///
-/// let record = TestRecord::new("tests/test_math.py::test_add");
-/// let test = record.test();
-/// // ... execute test in sandbox ...
-/// // test.record_result(result);
-/// ```
 #[derive(Serialize, Deserialize)]
 pub struct TestRecord {
     /// Unique identifier for this test.
@@ -338,21 +293,6 @@ impl std::fmt::Debug for TestRecord {
 /// `TestGroup` owns the test records for a group and allows callers to
 /// inspect results after execution completes. Results are stored in each
 /// `TestRecord` via interior mutability.
-///
-/// # Example
-///
-/// ```
-/// use offload::framework::{TestGroup, TestRecord};
-///
-/// let tests = vec![
-///     TestRecord::new("test_one"),
-///     TestRecord::new("test_two"),
-/// ];
-/// let group = TestGroup::new("my-group", tests);
-///
-/// assert_eq!(group.name(), "my-group");
-/// assert_eq!(group.tests().len(), 2);
-/// ```
 #[derive(Debug)]
 pub struct TestGroup {
     name: String,
@@ -618,17 +558,6 @@ impl TestOutcome {
     ///
     /// Both `Passed` and `Skipped` are considered successful outcomes
     /// that don't fail the test run.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::framework::TestOutcome;
-    ///
-    /// assert!(TestOutcome::Passed.is_success());
-    /// assert!(TestOutcome::Skipped.is_success());
-    /// assert!(!TestOutcome::Failed.is_success());
-    /// assert!(!TestOutcome::Error.is_success());
-    /// ```
     pub fn is_success(&self) -> bool {
         matches!(self, TestOutcome::Passed | TestOutcome::Skipped)
     }
@@ -683,9 +612,5 @@ pub trait TestFramework: Send + Sync {
     /// # Arguments
     ///
     /// * `tests` - Tests to execute (borrowed from TestRecords)
-    ///
-    /// # Example Output
-    ///
-    /// For pytest: `pytest -v tests/test_a.py::test_func tests/test_b.py::test_other`
     fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command;
 }

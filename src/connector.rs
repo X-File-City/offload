@@ -1,40 +1,4 @@
-//! Connector trait for shell command execution.
-//!
-//! This module provides the [`Connector`] trait, a simple abstraction for running
-//! shell commands either locally or on remote compute resources. Unlike the
-//! [`Sandbox`](crate::provider::Sandbox) trait which provides a higher-level
-//! interface for test execution, connectors are a lower-level primitive focused
-//! purely on command execution.
-//!
-//! # Architecture
-//!
-//! ```text
-//! ┌─────────────────────────────────────────────────┐
-//! │                   Caller                        │
-//! │         (decides what commands to run)          │
-//! └─────────────────────┬───────────────────────────┘
-//!                       │
-//!                       ▼
-//! ┌─────────────────────────────────────────────────┐
-//! │              Connector Trait                    │
-//! │   run() - buffered execution                    │
-//! │   run_stream() - streaming output               │
-//! └─────────────────────┬───────────────────────────┘
-//!                       │
-//!           ┌───────────┴───────────┐
-//!           ▼                       ▼
-//! ┌─────────────────┐     ┌─────────────────┐
-//! │ ShellConnector  │     │ Custom Connector│
-//! │ (local shell)   │     │ (API, etc)      │
-//! └─────────────────┘     └─────────────────┘
-//! ```
-//!
-//! # Built-in Connectors
-//!
-//! | Connector | Description |
-//! |-----------|-------------|
-//! | [`ShellConnector`] | Executes commands via local shell (`sh -c`) |
-//!
+//! Connector trait for shell command execution (local or remote).
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -54,22 +18,6 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 /// Contains the exit code and captured output from a command run via a
 /// [`Connector`]. This is similar to [`provider::ExecResult`](crate::provider::ExecResult)
 /// but without the duration field.
-///
-/// # Example
-///
-/// ```
-/// use offload::connector::ExecResult;
-///
-/// let result = ExecResult {
-///     exit_code: 0,
-///     stdout: "test_add PASSED\ntest_sub PASSED\n".to_string(),
-///     stderr: String::new(),
-/// };
-///
-/// if result.exit_code == 0 {
-///     println!("Command succeeded with output:\n{}", result.stdout);
-/// }
-/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecResult {
     /// Exit code from the command (0 typically indicates success).
@@ -174,14 +122,6 @@ impl ShellConnector {
     /// Creates a new shell connector with default settings.
     ///
     /// Uses the current working directory and a 1-hour timeout.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::connector::ShellConnector;
-    ///
-    /// let connector = ShellConnector::new();
-    /// ```
     pub fn new() -> Self {
         Self {
             working_dir: None,
@@ -197,15 +137,6 @@ impl ShellConnector {
     /// # Arguments
     ///
     /// * `dir` - Path to the working directory
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::connector::ShellConnector;
-    ///
-    /// let connector = ShellConnector::new()
-    ///     .with_working_dir("/home/user/project".into());
-    /// ```
     pub fn with_working_dir(mut self, dir: PathBuf) -> Self {
         self.working_dir = Some(dir);
         self
@@ -219,15 +150,6 @@ impl ShellConnector {
     /// # Arguments
     ///
     /// * `secs` - Timeout duration in seconds
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::connector::ShellConnector;
-    ///
-    /// let connector = ShellConnector::new()
-    ///     .with_timeout(600); // 10 minute timeout
-    /// ```
     pub fn with_timeout(mut self, secs: u64) -> Self {
         self.timeout_secs = secs;
         self
