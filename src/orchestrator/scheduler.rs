@@ -51,12 +51,15 @@ impl<'a> Batch<'a> {
         self.tests.is_empty()
     }
 
-    fn would_fit(&self, duration: Duration, cap: Duration) -> bool {
-        self.is_empty() || self.load + duration <= cap
-    }
-
-    fn would_fit_command(&self, test_id_len: usize) -> bool {
-        self.is_empty() || self.command_len + test_id_len <= MAX_BATCH_COMMAND_LEN
+    fn would_fit(
+        &self,
+        test_id_len: usize,
+        duration: Duration,
+        max_batch_duration: Option<Duration>,
+    ) -> bool {
+        self.is_empty()
+            || (self.command_len + test_id_len <= MAX_BATCH_COMMAND_LEN
+                && max_batch_duration.is_none_or(|cap| self.load + duration <= cap))
     }
 }
 
@@ -239,8 +242,7 @@ impl Scheduler {
             let target_idx = (0..batches.len())
                 .filter(|&i| {
                     !batches[i].contains(test_id)
-                        && batches[i].would_fit_command(test_id.len())
-                        && max_batch_duration.is_none_or(|cap| batches[i].would_fit(duration, cap))
+                        && batches[i].would_fit(test_id.len(), duration, max_batch_duration)
                 })
                 .min_by_key(|&i| batches[i].load);
 
