@@ -99,6 +99,14 @@ enum Commands {
         /// Show only error logs
         #[arg(long)]
         errors: bool,
+
+        /// Show only tests matching this exact ID (repeatable)
+        #[arg(long)]
+        test: Vec<String>,
+
+        /// Show only tests whose ID matches this regex (substring match)
+        #[arg(long)]
+        test_regex: Option<String>,
     },
 }
 
@@ -143,7 +151,12 @@ async fn main() -> Result<()> {
             provider,
             framework,
         } => init_config(&provider, &framework),
-        Commands::Logs { failures, errors } => show_logs(&cli.config, failures, errors),
+        Commands::Logs {
+            failures,
+            errors,
+            test,
+            test_regex,
+        } => show_logs(&cli.config, failures, errors, &test, test_regex.as_deref()),
     }
 }
 
@@ -685,7 +698,13 @@ fn init_config(provider: &str, framework: &str) -> Result<()> {
     Ok(())
 }
 
-fn show_logs(config_path: &Path, failures: bool, errors: bool) -> Result<()> {
+fn show_logs(
+    config_path: &Path,
+    failures: bool,
+    errors: bool,
+    test_ids: &[String],
+    test_regex: Option<&str>,
+) -> Result<()> {
     let config = config::load_config(config_path)
         .with_context(|| format!("Failed to load config from {}", config_path.display()))?;
 
@@ -698,6 +717,11 @@ fn show_logs(config_path: &Path, failures: bool, errors: bool) -> Result<()> {
         );
         std::process::exit(1);
     }
+
+    let re = test_regex
+        .map(regex::Regex::new)
+        .transpose()
+        .context("Invalid --test-regex pattern")?;
 
     let xml_content = std::fs::read_to_string(&junit_path)
         .with_context(|| format!("Failed to read {}", junit_path.display()))?;
@@ -725,11 +749,12 @@ fn show_logs(config_path: &Path, failures: bool, errors: bool) -> Result<()> {
         }
     }
 
-    // Filter by status flags
+    // Filter by status flags, then by test selection
     let filtered: Vec<(&String, &&offload::report::TestcaseXml)> = tests
         .iter()
-        .filter(|(_name, tc)| {
-            if failures && errors {
+        .filter(|(name, tc)| {
+            // Status filter
+            let status_ok = if failures && errors {
                 tc.failure.is_some() || tc.error.is_some()
             } else if failures {
                 tc.failure.is_some()
@@ -737,7 +762,24 @@ fn show_logs(config_path: &Path, failures: bool, errors: bool) -> Result<()> {
                 tc.error.is_some()
             } else {
                 true
+            };
+            if !status_ok {
+                return false;
             }
+
+            // Exact ID filter
+            if !test_ids.is_empty() && !test_ids.iter().any(|id| id == name.as_str()) {
+                return false;
+            }
+
+            // Regex filter
+            if let Some(ref re) = re
+                && !re.is_match(name)
+            {
+                return false;
+            }
+
+            true
         })
         .collect();
 

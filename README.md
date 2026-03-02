@@ -174,8 +174,11 @@ at `{output_dir}/{junit_file}` (default: `test-results/junit.xml`).
 |------|-------------|
 | `--failures` | Show only failed tests |
 | `--errors` | Show only errored tests |
+| `--test ID` | Show only the test with this exact ID (repeatable) |
+| `--test-regex PATTERN` | Show only tests whose ID matches this regex (substring match) |
 
-Flags can be combined: `offload logs --failures --errors` shows all non-passing tests.
+All flags compose with AND logic. For example, `offload logs --failures --test-regex "test_math"`
+shows only failed tests whose ID contains `test_math`.
 
 With no flags, all test results are printed. Each test is separated by a banner:
 

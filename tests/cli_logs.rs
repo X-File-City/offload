@@ -196,3 +196,130 @@ fn test_logs_no_matching_results() {
         .success()
         .stderr(predicate::str::contains("No matching test results found"));
 }
+
+#[test]
+fn test_logs_test_exact_single() {
+    let tmp = TempDir::new().expect("failed to create temp dir");
+    let output_dir = tmp.path().join("results");
+    write_junit_xml(&output_dir);
+
+    let config_path = tmp.path().join("offload.toml");
+    write_config(&config_path, &output_dir);
+
+    offload_cmd()
+        .args([
+            "-c",
+            config_path.to_str().unwrap(),
+            "logs",
+            "--test",
+            "tests/test_math.py::test_add",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("test_add"))
+        .stdout(predicate::str::contains("test_sub").not())
+        .stdout(predicate::str::contains("test_div").not())
+        .stdout(predicate::str::contains("test_connect").not());
+}
+
+#[test]
+fn test_logs_test_exact_multiple() {
+    let tmp = TempDir::new().expect("failed to create temp dir");
+    let output_dir = tmp.path().join("results");
+    write_junit_xml(&output_dir);
+
+    let config_path = tmp.path().join("offload.toml");
+    write_config(&config_path, &output_dir);
+
+    offload_cmd()
+        .args([
+            "-c",
+            config_path.to_str().unwrap(),
+            "logs",
+            "--test",
+            "tests/test_math.py::test_add",
+            "--test",
+            "tests/test_math.py::test_div",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("test_add"))
+        .stdout(predicate::str::contains("test_div"))
+        .stdout(predicate::str::contains("test_sub").not())
+        .stdout(predicate::str::contains("test_connect").not());
+}
+
+#[test]
+fn test_logs_test_regex_substring() {
+    let tmp = TempDir::new().expect("failed to create temp dir");
+    let output_dir = tmp.path().join("results");
+    write_junit_xml(&output_dir);
+
+    let config_path = tmp.path().join("offload.toml");
+    write_config(&config_path, &output_dir);
+
+    // Matches both test_math tests and test_div (all in test_math.py)
+    offload_cmd()
+        .args([
+            "-c",
+            config_path.to_str().unwrap(),
+            "logs",
+            "--test-regex",
+            "test_math",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("test_add"))
+        .stdout(predicate::str::contains("test_sub"))
+        .stdout(predicate::str::contains("test_div"))
+        .stdout(predicate::str::contains("test_connect").not());
+}
+
+#[test]
+fn test_logs_test_with_failures_filter() {
+    let tmp = TempDir::new().expect("failed to create temp dir");
+    let output_dir = tmp.path().join("results");
+    write_junit_xml(&output_dir);
+
+    let config_path = tmp.path().join("offload.toml");
+    write_config(&config_path, &output_dir);
+
+    // --test-regex matches all test_math tests, --failures narrows to only the failed one
+    offload_cmd()
+        .args([
+            "-c",
+            config_path.to_str().unwrap(),
+            "logs",
+            "--test-regex",
+            "test_math",
+            "--failures",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("test_div"))
+        .stdout(predicate::str::contains("FAILED"))
+        .stdout(predicate::str::contains("test_add").not())
+        .stdout(predicate::str::contains("test_sub").not());
+}
+
+#[test]
+fn test_logs_test_regex_invalid() {
+    let tmp = TempDir::new().expect("failed to create temp dir");
+    let output_dir = tmp.path().join("results");
+    write_junit_xml(&output_dir);
+
+    let config_path = tmp.path().join("offload.toml");
+    write_config(&config_path, &output_dir);
+
+    offload_cmd()
+        .args([
+            "-c",
+            config_path.to_str().unwrap(),
+            "logs",
+            "--test-regex",
+            "[invalid",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Invalid --test-regex pattern"));
+}
