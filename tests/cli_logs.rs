@@ -1,7 +1,12 @@
+use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
+use offload::config::{
+    Config, FrameworkConfig, GroupConfig, LocalProviderConfig, OffloadConfig, ProviderConfig,
+    PytestFrameworkConfig, ReportConfig,
+};
 use predicates::prelude::*;
 use tempfile::TempDir;
 
@@ -12,24 +17,24 @@ fn offload_cmd() -> Command {
 
 /// Create a minimal valid offload.toml pointing to the given output_dir.
 fn write_config(config_path: &Path, output_dir: &Path) {
-    let content = format!(
-        r#"[offload]
-max_parallel = 1
-sandbox_project_root = "."
-
-[provider]
-type = "local"
-
-[framework]
-type = "pytest"
-
-[groups.all]
-
-[report]
-output_dir = "{}"
-"#,
-        output_dir.display()
-    );
+    let config = Config {
+        offload: OffloadConfig {
+            max_parallel: 1,
+            test_timeout_secs: 300,
+            working_dir: None,
+            stream_output: false,
+            sandbox_project_root: ".".to_string(),
+        },
+        provider: ProviderConfig::Local(LocalProviderConfig::default()),
+        framework: FrameworkConfig::Pytest(PytestFrameworkConfig::default()),
+        groups: HashMap::from([("all".to_string(), GroupConfig::default())]),
+        report: ReportConfig {
+            output_dir: PathBuf::from(output_dir),
+            junit: true,
+            junit_file: "junit.xml".to_string(),
+        },
+    };
+    let content = toml::to_string_pretty(&config).expect("failed to serialize config");
     fs::write(config_path, content).expect("failed to write config");
 }
 
