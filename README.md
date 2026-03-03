@@ -165,6 +165,33 @@ Generate a new `offload.toml` configuration file.
 | `-p, --provider TYPE` | Provider type: `local`, `default` (default: `local`) |
 | `-f, --framework TYPE` | Framework type: `pytest`, `cargo`, `default` (default: `pytest`) |
 
+### `offload logs`
+
+View per-test results from the most recent run. Reads the JUnit XML report
+at `{output_dir}/{junit_file}` (default: `test-results/junit.xml`).
+
+| Flag | Description |
+|------|-------------|
+| `--failures` | Show only failed tests |
+| `--errors` | Show only errored tests |
+| `--test ID` | Show only the test with this exact ID (repeatable) |
+| `--test-regex PATTERN` | Show only tests whose ID matches this regex (substring match) |
+
+All flags compose with AND logic. For example, `offload logs --failures --test-regex "test_math"`
+shows only failed tests whose ID contains `test_math`.
+
+With no flags, all test results are printed. Each test is separated by a banner:
+
+```
+=== tests/test_math.py::test_add [PASSED] ===
+
+=== tests/test_math.py::test_div [FAILED] ===
+AssertionError: expected 2 got 3
+tests/test_math.py:10: in test_div
+    assert 1 / 0 == 2
+E   AssertionError: expected 2 got 3
+```
+
 ### Exit Codes
 
 | Code | Meaning |

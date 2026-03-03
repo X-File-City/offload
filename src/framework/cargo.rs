@@ -210,7 +210,7 @@ impl TestFramework for CargoFramework {
                 let id = t.id();
                 // Split into binary and test path; fall back to just test filter if no space
                 if let Some((binary, test_path)) = id.split_once(' ') {
-                    format!("(binary(={}) & test(={}))", binary, test_path)
+                    format!("(binary_id(={}) & test(={}))", binary, test_path)
                 } else {
                     format!("test(={})", id)
                 }

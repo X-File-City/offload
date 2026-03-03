@@ -35,33 +35,33 @@ impl TestId {
 
 /// Parsed testsuite element from JUnit XML.
 #[derive(Debug, Clone)]
-struct TestsuiteXml {
-    name: String,
-    tests: i32,
-    failures: i32,
-    errors: i32,
-    skipped: i32,
-    time: f64,
-    timestamp: Option<String>,
-    hostname: Option<String>,
-    testcases: Vec<TestcaseXml>,
+pub struct TestsuiteXml {
+    pub name: String,
+    pub tests: i32,
+    pub failures: i32,
+    pub errors: i32,
+    pub skipped: i32,
+    pub time: f64,
+    pub timestamp: Option<String>,
+    pub hostname: Option<String>,
+    pub testcases: Vec<TestcaseXml>,
 }
 
 /// Parsed testcase element from JUnit XML.
 #[derive(Debug, Clone)]
-struct TestcaseXml {
-    name: String,
-    classname: Option<String>,
-    time: f64,
-    failure: Option<FailureXml>,
-    error: Option<FailureXml>,
+pub struct TestcaseXml {
+    pub name: String,
+    pub classname: Option<String>,
+    pub time: f64,
+    pub failure: Option<FailureXml>,
+    pub error: Option<FailureXml>,
 }
 
 /// Parsed failure/error element from JUnit XML.
 #[derive(Debug, Clone)]
-struct FailureXml {
-    message: Option<String>,
-    content: String,
+pub struct FailureXml {
+    pub message: Option<String>,
+    pub content: String,
 }
 
 /// Accumulated JUnit results from all batches.
@@ -259,7 +259,7 @@ fn get_attr_f64(e: &BytesStart, name: &[u8]) -> f64 {
 
 /// Parses a JUnit XML string into a TestsuiteXml structure using quick-xml.
 /// Parse all testsuites from JUnit XML (handles multiple testsuites in one file).
-fn parse_all_testsuites_xml(xml: &str) -> Vec<TestsuiteXml> {
+pub fn parse_all_testsuites_xml(xml: &str) -> Vec<TestsuiteXml> {
     let mut reader = Reader::from_str(xml);
     let mut testsuites: Vec<TestsuiteXml> = Vec::new();
     let mut current_testsuite: Option<TestsuiteXml> = None;

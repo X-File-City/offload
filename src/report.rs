@@ -6,8 +6,8 @@
 pub mod junit;
 
 pub use junit::{
-    MasterJunitReport, SharedJunitReport, TestStatus, cleanup_parts, load_test_durations,
-    merge_junit_files,
+    FailureXml, MasterJunitReport, SharedJunitReport, TestStatus, TestcaseXml, TestsuiteXml,
+    cleanup_parts, load_test_durations, merge_junit_files, parse_all_testsuites_xml,
 };
 
 use crate::orchestrator::RunResult;
