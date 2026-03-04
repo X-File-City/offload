@@ -327,9 +327,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_run_stream_yields_exit_code_success() {
+    async fn test_run_stream_yields_exit_code_success() -> anyhow::Result<()> {
         let connector = ShellConnector::new();
-        let mut stream = connector.run_stream("echo hello").await.unwrap();
+        let mut stream = connector.run_stream("echo hello").await?;
 
         let mut exit_code = None;
         while let Some(line) = stream.next().await {
@@ -339,12 +339,13 @@ mod tests {
         }
 
         assert_eq!(exit_code, Some(0));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_run_stream_yields_exit_code_failure() {
+    async fn test_run_stream_yields_exit_code_failure() -> anyhow::Result<()> {
         let connector = ShellConnector::new();
-        let mut stream = connector.run_stream("exit 42").await.unwrap();
+        let mut stream = connector.run_stream("exit 42").await?;
 
         let mut exit_code = None;
         while let Some(line) = stream.next().await {
@@ -354,15 +355,13 @@ mod tests {
         }
 
         assert_eq!(exit_code, Some(42));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_run_stream_exit_code_comes_last() {
+    async fn test_run_stream_exit_code_comes_last() -> anyhow::Result<()> {
         let connector = ShellConnector::new();
-        let mut stream = connector
-            .run_stream("echo line1; echo line2")
-            .await
-            .unwrap();
+        let mut stream = connector.run_stream("echo line1; echo line2").await?;
 
         let mut lines = Vec::new();
         while let Some(line) = stream.next().await {
@@ -380,5 +379,6 @@ mod tests {
                 OutputLine::Stdout(_) | OutputLine::Stderr(_)
             ));
         }
+        Ok(())
     }
 }

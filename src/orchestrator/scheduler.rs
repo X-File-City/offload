@@ -602,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn test_schedule_lpt_long_test_gets_own_batch() {
+    fn test_schedule_lpt_long_test_gets_own_batch() -> anyhow::Result<()> {
         let scheduler = Scheduler::new(2);
         let records = [TestRecord::new("slow_test"), TestRecord::new("fast_test")];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
@@ -624,8 +624,9 @@ mod tests {
         let slow_batch = batches
             .iter()
             .find(|b| b.iter().any(|t| t.id() == "slow_test"))
-            .unwrap();
+            .ok_or_else(|| anyhow::anyhow!("slow_test batch not found"))?;
         assert_eq!(slow_batch.len(), 1);
+        Ok(())
     }
 
     #[test]
