@@ -143,6 +143,7 @@ Run tests in parallel.
 | `--copy-dir LOCAL:REMOTE` | Copy a directory into each sandbox (repeatable) |
 | `--env KEY=VALUE` | Set an environment variable in sandboxes (repeatable) |
 | `--no-cache` | Skip cached image lookup during prepare (forces fresh build) |
+| `--trace` | Emit a Perfetto trace to `{output_dir}/trace.json` |
 
 ### `offload collect`
 
@@ -302,6 +303,24 @@ Failed tests that pass on retry are marked as "flaky" (exit code 2).
 | `output_dir` | string | `"test-results"` | Directory for report files |
 | `junit` | boolean | `true` | Enable JUnit XML output |
 | `junit_file` | string | `"junit.xml"` | Filename for JUnit XML output |
+
+## Performance Tracing
+
+Pass `--trace` to `offload run` to generate a Chrome Trace Event JSON file:
+
+```bash
+offload run --trace
+```
+
+After the run completes, the trace is written to `{output_dir}/trace.json` (default: `test-results/trace.json`). Open it in [Perfetto UI](https://ui.perfetto.dev/) to visualize the execution timeline.
+
+The trace includes:
+
+- **Local phases**: config loading, test discovery, image preparation, sandbox pool creation
+- **Orchestrator**: scheduling, result aggregation, sandbox cleanup
+- **Per-sandbox**: batch execution, JUnit XML download, result parsing
+
+When `--trace` is not passed, tracing is completely disabled with zero overhead.
 
 ## Example Configurations
 
