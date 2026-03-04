@@ -596,7 +596,14 @@ mod tests {
         assert_eq!(config.framework.test_id_format(), "{classname}::{name}");
 
         // Verify group only has retry_count
-        assert_eq!(config.groups.get("all").unwrap().retry_count, 1);
+        assert_eq!(
+            config
+                .groups
+                .get("all")
+                .ok_or_else(|| anyhow::anyhow!("missing 'all' group"))?
+                .retry_count,
+            1
+        );
 
         Ok(())
     }

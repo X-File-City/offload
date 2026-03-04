@@ -41,7 +41,7 @@
 
 [no-expect]
 "." = 0
-"src/report" = 6
+"src/report" = 0
 
 [no-fixme-comments]
 "." = 0
@@ -112,7 +112,7 @@
 "." = 0
 
 [no-unwrap]
-"." = 4
+"." = 0
 
 [no-while-true]
 "." = 0

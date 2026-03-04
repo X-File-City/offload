@@ -717,7 +717,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_test_durations() {
+    fn test_load_test_durations() -> anyhow::Result<()> {
         use std::io::Write;
 
         let xml = r#"<?xml version="1.0"?>
@@ -729,10 +729,10 @@ mod tests {
   </testsuite>
 </testsuites>"#;
 
-        let dir = tempfile::tempdir().expect("create temp dir");
+        let dir = tempfile::tempdir()?;
         let path = dir.path().join("junit.xml");
-        let mut file = std::fs::File::create(&path).expect("create file");
-        file.write_all(xml.as_bytes()).expect("write xml");
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(xml.as_bytes())?;
 
         let durations = load_test_durations(&path, "{name}");
 
@@ -749,10 +749,11 @@ mod tests {
             durations.get("test_medium"),
             Some(&std::time::Duration::from_millis(2500))
         );
+        Ok(())
     }
 
     #[test]
-    fn test_load_test_durations_uses_max_for_duplicates() {
+    fn test_load_test_durations_uses_max_for_duplicates() -> anyhow::Result<()> {
         use std::io::Write;
 
         // Same test appears multiple times (from retries) - should use max duration
@@ -766,10 +767,10 @@ mod tests {
   </testsuite>
 </testsuites>"#;
 
-        let dir = tempfile::tempdir().expect("create temp dir");
+        let dir = tempfile::tempdir()?;
         let path = dir.path().join("junit.xml");
-        let mut file = std::fs::File::create(&path).expect("create file");
-        file.write_all(xml.as_bytes()).expect("write xml");
+        let mut file = std::fs::File::create(&path)?;
+        file.write_all(xml.as_bytes())?;
 
         let durations = load_test_durations(&path, "{name}");
 
@@ -779,6 +780,7 @@ mod tests {
             durations.get("test_flaky"),
             Some(&std::time::Duration::from_secs(3))
         );
+        Ok(())
     }
 
     #[test]
