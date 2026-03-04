@@ -114,6 +114,7 @@ pub struct Orchestrator<S, D> {
     config: Config,
     framework: D,
     verbose: bool,
+    tracer: crate::trace::Tracer,
     _sandbox: std::marker::PhantomData<S>,
 }
 
@@ -129,11 +130,13 @@ where
     /// * `config` - Configuration loaded from TOML
     /// * `framework` - Test framework for running tests
     /// * `verbose` - Whether to show verbose output (streaming test output)
-    pub fn new(config: Config, framework: D, verbose: bool) -> Self {
+    /// * `tracer` - Performance tracer for emitting trace events
+    pub fn new(config: Config, framework: D, verbose: bool, tracer: crate::trace::Tracer) -> Self {
         Self {
             config,
             framework,
             verbose,
+            tracer,
             _sandbox: std::marker::PhantomData,
         }
     }
@@ -164,12 +167,19 @@ where
         let start = std::time::Instant::now();
 
         // Load test durations from previous junit.xml for LPT scheduling
+        let _dur_span = self.tracer.span(
+            "duration_loading",
+            "orchestrator",
+            crate::trace::PID_LOCAL,
+            crate::trace::TID_MAIN,
+        );
         let junit_path = self
             .config
             .report
             .output_dir
             .join(&self.config.report.junit_file);
         let durations = load_test_durations(&junit_path, self.config.framework.test_id_format());
+        drop(_dur_span);
 
         // Ensure output directory exists (don't clear - junit.xml will be overwritten when ready)
         let output_dir = &self.config.report.output_dir;
@@ -229,6 +239,12 @@ where
 
         // Schedule tests using LPT (Longest Processing Time First) if we have durations,
         // otherwise fall back to round-robin with a warning.
+        let _sched_span = self.tracer.span(
+            "scheduling",
+            "orchestrator",
+            crate::trace::PID_LOCAL,
+            crate::trace::TID_MAIN,
+        );
         let scheduler = Scheduler::new(self.config.offload.max_parallel);
         let batches = if durations.is_empty() {
             warn!(
@@ -251,6 +267,7 @@ where
                 Some(MAX_BATCH_DURATION),
             )
         };
+        drop(_sched_span);
 
         // Take sandboxes from pool
         let sandboxes = sandbox_pool.take_all();
@@ -319,6 +336,12 @@ where
 
         // Aggregate results from TestRecords (handles parallel retries automatically)
         // Get results from the shared JUnit report
+        let _agg_span = self.tracer.span(
+            "result_aggregation",
+            "orchestrator",
+            crate::trace::PID_LOCAL,
+            crate::trace::TID_MAIN,
+        );
         info!("[ORCHESTRATOR] All batches completed, aggregating results...");
         let (passed, failed, flaky_count, total_in_report) = if let Ok(report) = junit_report.lock()
         {
@@ -384,11 +407,18 @@ where
             duration: start.elapsed(),
             results: Vec::new(), // Results are in JUnit XML now
         };
+        drop(_agg_span);
 
         progress.finish_and_clear();
         print_summary(&run_result);
 
         // Terminate all sandboxes in parallel (after printing results)
+        let _cleanup_span = self.tracer.span(
+            "sandbox_cleanup",
+            "orchestrator",
+            crate::trace::PID_LOCAL,
+            crate::trace::TID_MAIN,
+        );
         let sandboxes: Vec<_> = match sandboxes_for_cleanup.lock() {
             Ok(mut guard) => guard.drain(..).collect(),
             Err(e) => {
@@ -402,6 +432,7 @@ where
             }
         });
         futures::future::join_all(terminate_futures).await;
+        drop(_cleanup_span);
 
         Ok(run_result)
     }

@@ -626,7 +626,7 @@ where
         .context("Failed to create sandboxes")?;
     drop(_pool_span);
 
-    let orchestrator = Orchestrator::new(config.clone(), framework, verbose);
+    let orchestrator = Orchestrator::new(config.clone(), framework, verbose, tracer.clone());
 
     let result = orchestrator.run_with_tests(tests, sandbox_pool).await?;
 
