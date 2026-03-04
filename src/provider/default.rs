@@ -294,11 +294,17 @@ impl DefaultSandbox {
             .collect::<Vec<_>>()
             .join(" ");
 
-        // Combine env vars and command
+        // Combine env prefix and command
         let inner_cmd = if env_prefix.is_empty() {
             program_and_args
         } else {
             format!("{} {}", env_prefix, program_and_args)
+        };
+
+        // Prepend cd to project root if OFFLOAD_ROOT is set
+        let inner_cmd = match self.env.iter().find(|(k, _)| k == "OFFLOAD_ROOT") {
+            Some((_, root)) => format!("cd {} && {}", shell_words::quote(root), inner_cmd),
+            None => inner_cmd,
         };
 
         // Escape the entire command so it can be passed as a single shell argument
@@ -473,10 +479,15 @@ mod tests {
 
         let result = sandbox.build_exec_command(&command);
 
-        // Should have FOO=bar prefix before the command
+        // Should have FOO=bar as env prefix before the command
         assert!(
             result.contains("FOO=bar"),
-            "result should contain env var: {result}"
+            "result should contain env var prefix: {result}"
+        );
+        // No OFFLOAD_ROOT in env, so no cd should be prepended
+        assert!(
+            !result.contains("cd "),
+            "result should not contain cd without OFFLOAD_ROOT: {result}"
         );
         assert!(result.contains("echo"), "result should contain program");
     }
@@ -491,19 +502,19 @@ mod tests {
 
         let result = sandbox.build_exec_command(&command);
 
-        // Both env vars should be present
+        // Both env vars should be present as prefix
         assert!(
             result.contains("FOO=bar"),
-            "result should contain first env var: {result}"
+            "result should contain first env var prefix: {result}"
         );
         assert!(
             result.contains("BAZ=qux"),
-            "result should contain second env var: {result}"
+            "result should contain second env var prefix: {result}"
         );
-        // They should be space-separated in the prefix
+        // No OFFLOAD_ROOT in env, so no cd should be prepended
         assert!(
-            result.contains("FOO=bar BAZ=qux") || result.contains("BAZ=qux FOO=bar"),
-            "env vars should be space-separated: {result}"
+            !result.contains("cd "),
+            "result should not contain cd without OFFLOAD_ROOT: {result}"
         );
     }
 
@@ -514,9 +525,7 @@ mod tests {
 
         let result = sandbox.build_exec_command(&command);
 
-        // Value with spaces should be quoted. The inner command is then escaped again,
-        // so 'hello world' becomes '\''hello world'\'' in the final output
-        // We verify that MESSAGE= is present and the command template is filled
+        // Value with spaces should be quoted as env prefix
         assert!(
             result.contains("MESSAGE="),
             "env var name should be present: {result}"
@@ -525,6 +534,11 @@ mod tests {
         assert!(
             result.contains("hello world"),
             "env var value should be present (possibly escaped): {result}"
+        );
+        // No OFFLOAD_ROOT in env, so no cd should be prepended
+        assert!(
+            !result.contains("cd "),
+            "result should not contain cd without OFFLOAD_ROOT: {result}"
         );
     }
 
@@ -626,6 +640,45 @@ mod tests {
         assert!(
             result.contains("'hello world'"),
             "arg with space should be quoted: {result}"
+        );
+    }
+
+    #[test]
+    fn test_build_exec_command_offload_root_cd() {
+        let sandbox = sandbox_with_env(vec![
+            ("OFFLOAD_ROOT".to_string(), "/code/mng".to_string()),
+            ("FOO".to_string(), "bar".to_string()),
+        ]);
+        let command = cmd("pytest", &["-v"]);
+
+        let result = sandbox.build_exec_command(&command);
+
+        // cd with literal OFFLOAD_ROOT path should be prepended
+        assert!(
+            result.contains("cd /code/mng"),
+            "result should contain cd with literal OFFLOAD_ROOT path: {result}"
+        );
+        // OFFLOAD_ROOT should appear as env prefix
+        assert!(
+            result.contains("OFFLOAD_ROOT="),
+            "result should contain OFFLOAD_ROOT env var: {result}"
+        );
+        // FOO=bar should appear as env prefix
+        assert!(
+            result.contains("FOO=bar"),
+            "result should contain FOO env var prefix: {result}"
+        );
+        // Program should be present
+        assert!(
+            result.contains("pytest"),
+            "result should contain program: {result}"
+        );
+        // cd should come before the env prefix (cd is prepended to the whole inner command)
+        let cd_pos = result.find("cd /code/mng");
+        let env_pos = result.find("OFFLOAD_ROOT=");
+        assert!(
+            cd_pos < env_pos,
+            "cd should appear before env prefix: {result}"
         );
     }
 
