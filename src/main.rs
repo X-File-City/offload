@@ -192,6 +192,19 @@ async fn run_tests(
         offload::trace::Tracer::noop()
     };
 
+    tracer.metadata_event(
+        "process_name",
+        offload::trace::PID_LOCAL,
+        offload::trace::TID_MAIN,
+        serde_json::json!({"name": "Offload (Local)"}),
+    );
+    tracer.metadata_event(
+        "thread_name",
+        offload::trace::PID_LOCAL,
+        offload::trace::TID_MAIN,
+        serde_json::json!({"name": "Main"}),
+    );
+
     // Load configuration
     let mut config = config::load_config(config_path)
         .with_context(|| format!("Failed to load config from {}", config_path.display()))?;
@@ -247,6 +260,12 @@ async fn run_tests(
     info!("Loaded configuration from {}", config_path.display());
 
     // Phase 1: Discover tests for each group
+    let _discovery_span = tracer.span(
+        "test_discovery",
+        "local",
+        offload::trace::PID_LOCAL,
+        offload::trace::TID_MAIN,
+    );
     eprint!("Discovering tests... ");
 
     let mut all_tests: Vec<TestRecord> = Vec::new();
@@ -287,6 +306,7 @@ async fn run_tests(
         all_tests.len(),
         config.groups.len()
     );
+    drop(_discovery_span);
 
     if collect_only {
         // Group tests by their group name for display
@@ -354,6 +374,12 @@ async fn run_tests(
                 .iter()
                 .map(|cd| (cd.local.clone(), cd.remote.clone()))
                 .collect();
+            let _prepare_span = tracer.span(
+                "image_prepare",
+                "local",
+                offload::trace::PID_LOCAL,
+                offload::trace::TID_MAIN,
+            );
             let provider = DefaultProvider::from_config(
                 p_cfg.clone(),
                 &copy_dir_tuples,
@@ -362,6 +388,7 @@ async fn run_tests(
             )
             .await
             .context("Failed to create Default provider")?;
+            drop(_prepare_span);
             run_all_tests(
                 &config,
                 &all_tests,
@@ -379,6 +406,12 @@ async fn run_tests(
                 .iter()
                 .map(|cd| (cd.local.clone(), cd.remote.clone()))
                 .collect();
+            let _prepare_span = tracer.span(
+                "image_prepare",
+                "local",
+                offload::trace::PID_LOCAL,
+                offload::trace::TID_MAIN,
+            );
             let provider = DefaultProvider::from_config(
                 p_cfg.clone(),
                 &copy_dir_tuples,
@@ -387,6 +420,7 @@ async fn run_tests(
             )
             .await
             .context("Failed to create Default provider")?;
+            drop(_prepare_span);
             run_all_tests(
                 &config,
                 &all_tests,
@@ -404,6 +438,12 @@ async fn run_tests(
                 .iter()
                 .map(|cd| (cd.local.clone(), cd.remote.clone()))
                 .collect();
+            let _prepare_span = tracer.span(
+                "image_prepare",
+                "local",
+                offload::trace::PID_LOCAL,
+                offload::trace::TID_MAIN,
+            );
             let provider = DefaultProvider::from_config(
                 p_cfg.clone(),
                 &copy_dir_tuples,
@@ -412,6 +452,7 @@ async fn run_tests(
             )
             .await
             .context("Failed to create Default provider")?;
+            drop(_prepare_span);
             run_all_tests(
                 &config,
                 &all_tests,
@@ -428,6 +469,12 @@ async fn run_tests(
                 .iter()
                 .map(|cd| (cd.local.clone(), cd.remote.clone()))
                 .collect();
+            let _prepare_span = tracer.span(
+                "image_prepare",
+                "local",
+                offload::trace::PID_LOCAL,
+                offload::trace::TID_MAIN,
+            );
             let provider = ModalProvider::from_config(
                 p_cfg.clone(),
                 &copy_dir_tuples,
@@ -436,6 +483,7 @@ async fn run_tests(
             )
             .await
             .context("Failed to create Modal provider")?;
+            drop(_prepare_span);
             run_all_tests(
                 &config,
                 &all_tests,
@@ -452,6 +500,12 @@ async fn run_tests(
                 .iter()
                 .map(|cd| (cd.local.clone(), cd.remote.clone()))
                 .collect();
+            let _prepare_span = tracer.span(
+                "image_prepare",
+                "local",
+                offload::trace::PID_LOCAL,
+                offload::trace::TID_MAIN,
+            );
             let provider = ModalProvider::from_config(
                 p_cfg.clone(),
                 &copy_dir_tuples,
@@ -460,6 +514,7 @@ async fn run_tests(
             )
             .await
             .context("Failed to create Modal provider")?;
+            drop(_prepare_span);
             run_all_tests(
                 &config,
                 &all_tests,
@@ -476,6 +531,12 @@ async fn run_tests(
                 .iter()
                 .map(|cd| (cd.local.clone(), cd.remote.clone()))
                 .collect();
+            let _prepare_span = tracer.span(
+                "image_prepare",
+                "local",
+                offload::trace::PID_LOCAL,
+                offload::trace::TID_MAIN,
+            );
             let provider = ModalProvider::from_config(
                 p_cfg.clone(),
                 &copy_dir_tuples,
@@ -484,6 +545,7 @@ async fn run_tests(
             )
             .await
             .context("Failed to create Modal provider")?;
+            drop(_prepare_span);
             run_all_tests(
                 &config,
                 &all_tests,
@@ -521,7 +583,7 @@ async fn run_all_tests<P, D>(
     framework: D,
     copy_dirs: &[CopyDir],
     verbose: bool,
-    _tracer: &offload::trace::Tracer,
+    tracer: &offload::trace::Tracer,
 ) -> Result<i32>
 where
     P: offload::provider::SandboxProvider,
@@ -552,10 +614,17 @@ where
     };
 
     let mut sandbox_pool = SandboxPool::new();
+    let _pool_span = tracer.span(
+        "sandbox_pool_create",
+        "local",
+        offload::trace::PID_LOCAL,
+        offload::trace::TID_MAIN,
+    );
     sandbox_pool
         .populate(config.offload.max_parallel, &provider, &sandbox_config)
         .await
         .context("Failed to create sandboxes")?;
+    drop(_pool_span);
 
     let orchestrator = Orchestrator::new(config.clone(), framework, verbose);
 
