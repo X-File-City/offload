@@ -56,7 +56,7 @@ Offload relies on a stable relationship between test discovery, execution, and r
 
 Each group triggers its own discovery call. The discovered test IDs become the canonical identifiers for the entire run.
 
-- **pytest**: Runs `{python} -m pytest --collect-only -q` locally and parses one test ID per line from stdout. Output format: `path/to/test.py::TestClass::test_method`. Group `filters` are appended as extra pytest args (e.g. `-m 'not slow'`).
+- **pytest**: Runs `{command} --collect-only -q` (or `{python} {extra_args} -m pytest --collect-only -q` in legacy mode) locally and parses one test ID per line from stdout. Output format: `path/to/test.py::TestClass::test_method`. Group `filters` are appended as extra pytest args (e.g. `-m 'not slow'`).
 - **cargo**: Runs `cargo nextest list --message-format json` locally and parses test IDs from the JSON output. Test IDs are formatted as `{binary_id} {test_name}`. Group `filters` are appended as extra nextest args.
 - **default**: Runs `discover_command` through `sh -c` and reads one test ID per line from stdout. The `{filters}` placeholder is replaced with the group's filter string (or empty string). Lines starting with `#` are ignored.
 
@@ -263,8 +263,10 @@ The `type` field selects the framework. One of: `pytest`, `cargo`, `default`.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `paths` | list | `["tests"]` | Directories to search for tests |
-| `extra_args` | list | `[]` | Additional pytest arguments for discovery |
-| `python` | string | `"python"` | Python interpreter to use |
+| `command` | string | (none) | Full command prefix for pytest invocation (e.g. `"uv run pytest"`). When set, replaces `python`/`extra_args`/`-m pytest` |
+| `run_args` | string | (none) | Extra arguments for test execution only (not discovery). Only used when `command` is set |
+| `extra_args` | list | `[]` | (Legacy) Additional pytest arguments for discovery. Ignored when `command` is set |
+| `python` | string | `"python"` | (Legacy) Python interpreter. Ignored when `command` is set |
 
 #### `type = "cargo"`
 
@@ -347,8 +349,7 @@ timeout_secs = 600
 [framework]
 type = "pytest"
 paths = ["examples/tests"]
-python = "uv"
-extra_args = ["run", "--with=pytest"]
+command = "uv run pytest"
 
 [groups.unit]
 retry_count = 2
@@ -385,7 +386,7 @@ retry_count = 1
 output_dir = "test-results"
 ```
 
-### Default Framework on Modal (`offload-pytest-default.toml` from mng)
+### Pytest on Modal (`offload-pytest-default.toml` from mng)
 
 ```toml
 [offload]
@@ -406,8 +407,7 @@ timeout_secs = 600
 [framework]
 type = "pytest"
 paths = ["libs/mng/tests"]
-python = "uv"
-extra_args = ["run", "--with=pytest"]
+command = "uv run pytest"
 
 [groups.all]
 retry_count = 0
