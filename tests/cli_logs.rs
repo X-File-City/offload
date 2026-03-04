@@ -24,6 +24,7 @@ fn write_config(config_path: &Path, output_dir: &Path) {
             working_dir: None,
             stream_output: false,
             sandbox_project_root: ".".to_string(),
+            sandbox_init_cmd: None,
         },
         provider: ProviderConfig::Local(LocalProviderConfig::default()),
         framework: FrameworkConfig::Pytest(PytestFrameworkConfig::default()),
