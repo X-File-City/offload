@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
@@ -401,9 +402,21 @@ async fn run_tests(
                 .map(|cd| (cd.local.clone(), cd.remote.clone()))
                 .collect();
             // Run discovery and image preparation concurrently
-            eprint!("Discovering tests... ");
+            let discovery_done = AtomicBool::new(false);
             let (all_tests, provider) = tokio::try_join!(
-                discover_all_tests(&config.framework, &config.groups),
+                async {
+                    eprintln!("[discover] Discovering tests...");
+                    let result = discover_all_tests(&config.framework, &config.groups).await;
+                    if let Ok(ref tests) = result {
+                        eprintln!(
+                            "[discover] found {} tests across {} groups",
+                            tests.len(),
+                            config.groups.len()
+                        );
+                    }
+                    discovery_done.store(true, Ordering::Release);
+                    result
+                },
                 async {
                     let _span = tracer.span(
                         "image_prepare",
@@ -416,16 +429,12 @@ async fn run_tests(
                         &copy_dir_tuples,
                         no_cache,
                         config.offload.sandbox_init_cmd.as_deref(),
+                        Some(&discovery_done),
                     )
                     .await
                     .context("Failed to create Default provider")
                 }
             )?;
-            eprintln!(
-                "found {} tests across {} groups",
-                all_tests.len(),
-                config.groups.len()
-            );
             if all_tests.is_empty() {
                 info!("No tests to run");
                 return Ok(());
@@ -438,9 +447,21 @@ async fn run_tests(
                 .map(|cd| (cd.local.clone(), cd.remote.clone()))
                 .collect();
             // Run discovery and image preparation concurrently
-            eprint!("Discovering tests... ");
+            let discovery_done = AtomicBool::new(false);
             let (all_tests, provider) = tokio::try_join!(
-                discover_all_tests(&config.framework, &config.groups),
+                async {
+                    eprintln!("[discover] Discovering tests...");
+                    let result = discover_all_tests(&config.framework, &config.groups).await;
+                    if let Ok(ref tests) = result {
+                        eprintln!(
+                            "[discover] found {} tests across {} groups",
+                            tests.len(),
+                            config.groups.len()
+                        );
+                    }
+                    discovery_done.store(true, Ordering::Release);
+                    result
+                },
                 async {
                     let _span = tracer.span(
                         "image_prepare",
@@ -453,16 +474,12 @@ async fn run_tests(
                         &copy_dir_tuples,
                         no_cache,
                         config.offload.sandbox_init_cmd.as_deref(),
+                        Some(&discovery_done),
                     )
                     .await
                     .context("Failed to create Modal provider")
                 }
             )?;
-            eprintln!(
-                "found {} tests across {} groups",
-                all_tests.len(),
-                config.groups.len()
-            );
             if all_tests.is_empty() {
                 info!("No tests to run");
                 return Ok(());
