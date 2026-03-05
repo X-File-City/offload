@@ -39,6 +39,8 @@ pub(crate) struct SpawnConfig<'a, F: TestFramework, S: Sandbox> {
     pub logs_dir: PathBuf,
     pub batch_counter: Arc<AtomicUsize>,
     pub verbose: bool,
+    pub tracer: crate::trace::Tracer,
+    pub sandbox_index: usize,
 }
 
 /// Runs a worker that pulls batches from a shared queue until empty.
@@ -88,12 +90,29 @@ pub(crate) async fn spawn_task<'a, F: TestFramework, S: Sandbox>(
             return;
         }
 
+        let sandbox_pid = crate::trace::sandbox_pid(cfg.sandbox_index);
+        let _batch_span = cfg
+            .tracer
+            .span(
+                &format!("batch_{}", batch_idx),
+                "exec",
+                sandbox_pid,
+                crate::trace::TID_EXEC,
+            )
+            .with_args(serde_json::json!({
+                "batch_index": batch_idx,
+                "test_count": batch.len(),
+                "sandbox_index": cfg.sandbox_index,
+            }));
+
         // Set up runner
         let parts_dir = cfg.config.report.output_dir.join("junit-parts");
         let mut runner = TestRunner::new(
             sandbox,
             cfg.framework,
             Duration::from_secs(cfg.config.offload.test_timeout_secs),
+            cfg.tracer.clone(),
+            sandbox_pid,
         )
         .with_cancellation_token(cfg.cancellation_token.clone())
         .with_junit_report(Arc::clone(&cfg.junit_report))
@@ -176,6 +195,7 @@ pub(crate) async fn spawn_task<'a, F: TestFramework, S: Sandbox>(
         }
 
         cfg.progress.inc(batch.len() as u64);
+        drop(_batch_span);
         sandbox = runner.into_sandbox();
     }
 
