@@ -327,7 +327,7 @@ retry_count = 0
 output_dir = "test-results"
 ```
 
-### Pytest on Modal (`offload-modal.toml`)
+### Pytest on Modal (`offload-pytest-default.toml`)
 
 ```toml
 [offload]
@@ -385,7 +385,7 @@ retry_count = 1
 output_dir = "test-results"
 ```
 
-### Pytest on Modal with sandbox_init_cmd (`offload-modal.toml` from mng)
+### Default Framework on Modal (`offload-pytest-default.toml` from mng)
 
 ```toml
 [offload]
@@ -441,7 +441,7 @@ Configuration values support environment variable expansion:
 Offload can run its own test suite on Modal:
 
 ```bash
-cargo run -- -c offload-modal.toml run
+cargo run -- -c offload-pytest-default.toml run
 ```
 
 This requires a valid Modal API key.
