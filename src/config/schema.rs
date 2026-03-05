@@ -357,6 +357,18 @@ pub struct PytestFrameworkConfig {
     #[serde(default = "default_python")]
     pub python: String,
 
+    /// Full command prefix for invoking pytest (e.g. `"uv run pytest"`).
+    ///
+    /// When set, replaces the legacy `python` + `extra_args` + `-m pytest` combination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+
+    /// Extra arguments appended only during test execution (not discovery).
+    ///
+    /// Only used when `command` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_args: Option<String>,
+
     /// Format string for constructing test IDs from JUnit XML attributes.
     ///
     /// Available placeholders:
@@ -770,6 +782,80 @@ mod tests {
             round_tripped.offload.sandbox_init_cmd.as_deref(),
             Some("git apply /offload-upload/patch --allow-empty && uv sync --all-packages")
         );
+
+        Ok(())
+    }
+
+    /// Test that `command` and `run_args` fields round-trip through TOML serialization.
+    #[test]
+    fn test_pytest_command_and_run_args_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+        let toml_str = r#"
+            [offload]
+            sandbox_project_root = "/app"
+
+            [provider]
+            type = "local"
+
+            [framework]
+            type = "pytest"
+            command = "uv run pytest"
+            run_args = "--no-cov"
+
+            [groups.all]
+            retry_count = 0
+        "#;
+
+        let config: Config = toml::from_str(toml_str)?;
+
+        if let FrameworkConfig::Pytest(ref pytest) = config.framework {
+            assert_eq!(pytest.command.as_deref(), Some("uv run pytest"));
+            assert_eq!(pytest.run_args.as_deref(), Some("--no-cov"));
+        } else {
+            return Err("Expected Pytest framework".into());
+        }
+
+        let serialized = toml::to_string_pretty(&config)?;
+        let round_tripped: Config = toml::from_str(&serialized)?;
+
+        if let FrameworkConfig::Pytest(ref pytest) = round_tripped.framework {
+            assert_eq!(pytest.command.as_deref(), Some("uv run pytest"));
+            assert_eq!(pytest.run_args.as_deref(), Some("--no-cov"));
+        } else {
+            return Err("Expected Pytest framework after round-trip".into());
+        }
+
+        Ok(())
+    }
+
+    /// Test that configs without `command` / `run_args` still deserialize correctly.
+    #[test]
+    fn test_pytest_command_backward_compat() -> Result<(), Box<dyn std::error::Error>> {
+        let toml_str = r#"
+            [offload]
+            sandbox_project_root = "/app"
+
+            [provider]
+            type = "local"
+
+            [framework]
+            type = "pytest"
+            python = "python"
+            extra_args = ["--timeout=60"]
+
+            [groups.all]
+            retry_count = 0
+        "#;
+
+        let config: Config = toml::from_str(toml_str)?;
+
+        if let FrameworkConfig::Pytest(ref pytest) = config.framework {
+            assert!(pytest.command.is_none());
+            assert!(pytest.run_args.is_none());
+            assert_eq!(pytest.python, "python");
+            assert_eq!(pytest.extra_args, vec!["--timeout=60".to_string()]);
+        } else {
+            return Err("Expected Pytest framework".into());
+        }
 
         Ok(())
     }
