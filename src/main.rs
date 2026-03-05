@@ -346,24 +346,15 @@ async fn run_tests(
 
     info!("Loaded configuration from {}", config_path.display());
 
-    // Phase 1: Discover tests for each group
-    let _discovery_span = tracer.span(
-        "test_discovery",
-        "local",
-        offload::trace::PID_LOCAL,
-        offload::trace::TID_MAIN,
-    );
-    eprint!("Discovering tests... ");
-    let all_tests = discover_all_tests(&config.framework, &config.groups).await?;
-    eprintln!(
-        "found {} tests across {} groups",
-        all_tests.len(),
-        config.groups.len()
-    );
-    drop(_discovery_span);
-
+    // Handle collect-only: only discovery needed, no provider setup
     if collect_only {
-        // Group tests by their group name for display
+        eprint!("Discovering tests... ");
+        let all_tests = discover_all_tests(&config.framework, &config.groups).await?;
+        eprintln!(
+            "found {} tests across {} groups",
+            all_tests.len(),
+            config.groups.len()
+        );
         for group_name in config.groups.keys() {
             let group_tests: Vec<_> = all_tests
                 .iter()
@@ -379,20 +370,21 @@ async fn run_tests(
         return Ok(());
     }
 
-    if all_tests.is_empty() {
-        info!("No tests to run");
-        return Ok(());
-    }
-
-    // Phase 2: Run ALL tests at once with a single orchestrator
-    // Convert CopyDir to tuples for providers that need it (cheap, no-op if unused)
-    let copy_dir_tuples: Vec<(PathBuf, PathBuf)> = copy_dirs
-        .iter()
-        .map(|cd| (cd.local.clone(), cd.remote.clone()))
-        .collect();
-
+    // Phase 1+2: Discover tests and prepare provider (concurrently where possible)
     let exit_code = match &config.provider {
         ProviderConfig::Local(p_cfg) => {
+            // Local provider is synchronous — no concurrency benefit
+            eprint!("Discovering tests... ");
+            let all_tests = discover_all_tests(&config.framework, &config.groups).await?;
+            eprintln!(
+                "found {} tests across {} groups",
+                all_tests.len(),
+                config.groups.len()
+            );
+            if all_tests.is_empty() {
+                info!("No tests to run");
+                return Ok(());
+            }
             dispatch_framework(
                 &config,
                 &all_tests,
@@ -404,44 +396,78 @@ async fn run_tests(
             .await?
         }
         ProviderConfig::Default(p_cfg) => {
-            let provider = {
-                let _span = tracer.span(
-                    "image_prepare",
-                    "local",
-                    offload::trace::PID_LOCAL,
-                    offload::trace::TID_MAIN,
-                );
-                DefaultProvider::from_config(
-                    p_cfg.clone(),
-                    &copy_dir_tuples,
-                    no_cache,
-                    config.offload.sandbox_init_cmd.as_deref(),
-                )
-                .await
-                .context("Failed to create Default provider")?
-            };
-            dispatch_framework(&config, &all_tests, provider, &copy_dirs, verbose, &tracer)
-                .await?
+            let copy_dir_tuples: Vec<(PathBuf, PathBuf)> = copy_dirs
+                .iter()
+                .map(|cd| (cd.local.clone(), cd.remote.clone()))
+                .collect();
+            // Run discovery and image preparation concurrently
+            eprint!("Discovering tests... ");
+            let (all_tests, provider) = tokio::try_join!(
+                discover_all_tests(&config.framework, &config.groups),
+                async {
+                    let _span = tracer.span(
+                        "image_prepare",
+                        "local",
+                        offload::trace::PID_LOCAL,
+                        offload::trace::TID_MAIN,
+                    );
+                    DefaultProvider::from_config(
+                        p_cfg.clone(),
+                        &copy_dir_tuples,
+                        no_cache,
+                        config.offload.sandbox_init_cmd.as_deref(),
+                    )
+                    .await
+                    .context("Failed to create Default provider")
+                }
+            )?;
+            eprintln!(
+                "found {} tests across {} groups",
+                all_tests.len(),
+                config.groups.len()
+            );
+            if all_tests.is_empty() {
+                info!("No tests to run");
+                return Ok(());
+            }
+            dispatch_framework(&config, &all_tests, provider, &copy_dirs, verbose, &tracer).await?
         }
         ProviderConfig::Modal(p_cfg) => {
-            let provider = {
-                let _span = tracer.span(
-                    "image_prepare",
-                    "local",
-                    offload::trace::PID_LOCAL,
-                    offload::trace::TID_MAIN,
-                );
-                ModalProvider::from_config(
-                    p_cfg.clone(),
-                    &copy_dir_tuples,
-                    no_cache,
-                    config.offload.sandbox_init_cmd.as_deref(),
-                )
-                .await
-                .context("Failed to create Modal provider")?
-            };
-            dispatch_framework(&config, &all_tests, provider, &copy_dirs, verbose, &tracer)
-                .await?
+            let copy_dir_tuples: Vec<(PathBuf, PathBuf)> = copy_dirs
+                .iter()
+                .map(|cd| (cd.local.clone(), cd.remote.clone()))
+                .collect();
+            // Run discovery and image preparation concurrently
+            eprint!("Discovering tests... ");
+            let (all_tests, provider) = tokio::try_join!(
+                discover_all_tests(&config.framework, &config.groups),
+                async {
+                    let _span = tracer.span(
+                        "image_prepare",
+                        "local",
+                        offload::trace::PID_LOCAL,
+                        offload::trace::TID_MAIN,
+                    );
+                    ModalProvider::from_config(
+                        p_cfg.clone(),
+                        &copy_dir_tuples,
+                        no_cache,
+                        config.offload.sandbox_init_cmd.as_deref(),
+                    )
+                    .await
+                    .context("Failed to create Modal provider")
+                }
+            )?;
+            eprintln!(
+                "found {} tests across {} groups",
+                all_tests.len(),
+                config.groups.len()
+            );
+            if all_tests.is_empty() {
+                info!("No tests to run");
+                return Ok(());
+            }
+            dispatch_framework(&config, &all_tests, provider, &copy_dirs, verbose, &tracer).await?
         }
     };
 
