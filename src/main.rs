@@ -213,6 +213,55 @@ async fn discover_all_tests(
     Ok(all_tests)
 }
 
+/// Dispatch test execution to the appropriate framework, using the given provider.
+async fn dispatch_framework<P: offload::provider::SandboxProvider>(
+    config: &Config,
+    all_tests: &[TestRecord],
+    provider: P,
+    copy_dirs: &[CopyDir],
+    verbose: bool,
+    tracer: &offload::trace::Tracer,
+) -> Result<i32> {
+    match &config.framework {
+        FrameworkConfig::Pytest(f_cfg) => {
+            run_all_tests(
+                config,
+                all_tests,
+                provider,
+                PytestFramework::new(f_cfg.clone()),
+                copy_dirs,
+                verbose,
+                tracer,
+            )
+            .await
+        }
+        FrameworkConfig::Cargo(f_cfg) => {
+            run_all_tests(
+                config,
+                all_tests,
+                provider,
+                CargoFramework::new(f_cfg.clone()),
+                copy_dirs,
+                verbose,
+                tracer,
+            )
+            .await
+        }
+        FrameworkConfig::Default(f_cfg) => {
+            run_all_tests(
+                config,
+                all_tests,
+                provider,
+                DefaultFramework::new(f_cfg.clone()),
+                copy_dirs,
+                verbose,
+                tracer,
+            )
+            .await
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_tests(
     config_path: &Path,
@@ -342,44 +391,19 @@ async fn run_tests(
         .map(|cd| (cd.local.clone(), cd.remote.clone()))
         .collect();
 
-    let exit_code = match (&config.provider, &config.framework) {
-        (ProviderConfig::Local(p_cfg), FrameworkConfig::Pytest(f_cfg)) => {
-            run_all_tests(
+    let exit_code = match &config.provider {
+        ProviderConfig::Local(p_cfg) => {
+            dispatch_framework(
                 &config,
                 &all_tests,
                 LocalProvider::new(p_cfg.clone()),
-                PytestFramework::new(f_cfg.clone()),
                 &copy_dirs,
                 verbose,
                 &tracer,
             )
             .await?
         }
-        (ProviderConfig::Local(p_cfg), FrameworkConfig::Cargo(f_cfg)) => {
-            run_all_tests(
-                &config,
-                &all_tests,
-                LocalProvider::new(p_cfg.clone()),
-                CargoFramework::new(f_cfg.clone()),
-                &copy_dirs,
-                verbose,
-                &tracer,
-            )
-            .await?
-        }
-        (ProviderConfig::Local(p_cfg), FrameworkConfig::Default(f_cfg)) => {
-            run_all_tests(
-                &config,
-                &all_tests,
-                LocalProvider::new(p_cfg.clone()),
-                DefaultFramework::new(f_cfg.clone()),
-                &copy_dirs,
-                verbose,
-                &tracer,
-            )
-            .await?
-        }
-        (ProviderConfig::Default(p_cfg), FrameworkConfig::Pytest(f_cfg)) => {
+        ProviderConfig::Default(p_cfg) => {
             let provider = {
                 let _span = tracer.span(
                     "image_prepare",
@@ -396,74 +420,10 @@ async fn run_tests(
                 .await
                 .context("Failed to create Default provider")?
             };
-            run_all_tests(
-                &config,
-                &all_tests,
-                provider,
-                PytestFramework::new(f_cfg.clone()),
-                &copy_dirs,
-                verbose,
-                &tracer,
-            )
-            .await?
+            dispatch_framework(&config, &all_tests, provider, &copy_dirs, verbose, &tracer)
+                .await?
         }
-        (ProviderConfig::Default(p_cfg), FrameworkConfig::Cargo(f_cfg)) => {
-            let provider = {
-                let _span = tracer.span(
-                    "image_prepare",
-                    "local",
-                    offload::trace::PID_LOCAL,
-                    offload::trace::TID_MAIN,
-                );
-                DefaultProvider::from_config(
-                    p_cfg.clone(),
-                    &copy_dir_tuples,
-                    no_cache,
-                    config.offload.sandbox_init_cmd.as_deref(),
-                )
-                .await
-                .context("Failed to create Default provider")?
-            };
-            run_all_tests(
-                &config,
-                &all_tests,
-                provider,
-                CargoFramework::new(f_cfg.clone()),
-                &copy_dirs,
-                verbose,
-                &tracer,
-            )
-            .await?
-        }
-        (ProviderConfig::Default(p_cfg), FrameworkConfig::Default(f_cfg)) => {
-            let provider = {
-                let _span = tracer.span(
-                    "image_prepare",
-                    "local",
-                    offload::trace::PID_LOCAL,
-                    offload::trace::TID_MAIN,
-                );
-                DefaultProvider::from_config(
-                    p_cfg.clone(),
-                    &copy_dir_tuples,
-                    no_cache,
-                    config.offload.sandbox_init_cmd.as_deref(),
-                )
-                .await
-                .context("Failed to create Default provider")?
-            };
-            run_all_tests(
-                &config,
-                &all_tests,
-                provider,
-                DefaultFramework::new(f_cfg.clone()),
-                &copy_dirs,
-                verbose,
-                &tracer,
-            )
-            .await?
-        }
-        (ProviderConfig::Modal(p_cfg), FrameworkConfig::Pytest(f_cfg)) => {
+        ProviderConfig::Modal(p_cfg) => {
             let provider = {
                 let _span = tracer.span(
                     "image_prepare",
@@ -480,72 +440,8 @@ async fn run_tests(
                 .await
                 .context("Failed to create Modal provider")?
             };
-            run_all_tests(
-                &config,
-                &all_tests,
-                provider,
-                PytestFramework::new(f_cfg.clone()),
-                &copy_dirs,
-                verbose,
-                &tracer,
-            )
-            .await?
-        }
-        (ProviderConfig::Modal(p_cfg), FrameworkConfig::Cargo(f_cfg)) => {
-            let provider = {
-                let _span = tracer.span(
-                    "image_prepare",
-                    "local",
-                    offload::trace::PID_LOCAL,
-                    offload::trace::TID_MAIN,
-                );
-                ModalProvider::from_config(
-                    p_cfg.clone(),
-                    &copy_dir_tuples,
-                    no_cache,
-                    config.offload.sandbox_init_cmd.as_deref(),
-                )
-                .await
-                .context("Failed to create Modal provider")?
-            };
-            run_all_tests(
-                &config,
-                &all_tests,
-                provider,
-                CargoFramework::new(f_cfg.clone()),
-                &copy_dirs,
-                verbose,
-                &tracer,
-            )
-            .await?
-        }
-        (ProviderConfig::Modal(p_cfg), FrameworkConfig::Default(f_cfg)) => {
-            let provider = {
-                let _span = tracer.span(
-                    "image_prepare",
-                    "local",
-                    offload::trace::PID_LOCAL,
-                    offload::trace::TID_MAIN,
-                );
-                ModalProvider::from_config(
-                    p_cfg.clone(),
-                    &copy_dir_tuples,
-                    no_cache,
-                    config.offload.sandbox_init_cmd.as_deref(),
-                )
-                .await
-                .context("Failed to create Modal provider")?
-            };
-            run_all_tests(
-                &config,
-                &all_tests,
-                provider,
-                DefaultFramework::new(f_cfg.clone()),
-                &copy_dirs,
-                verbose,
-                &tracer,
-            )
-            .await?
+            dispatch_framework(&config, &all_tests, provider, &copy_dirs, verbose, &tracer)
+                .await?
         }
     };
 
