@@ -103,8 +103,8 @@ pub struct TestRecord {
 }
 
 impl TestRecord {
-    /// Creates a new test record with the given ID.
-    pub fn new(id: impl Into<String>) -> Self {
+    /// Creates a new test record with the given ID and group.
+    pub fn new(id: impl Into<String>, group: impl Into<String>) -> Self {
         let id = id.into();
         let name = id
             .split("::")
@@ -120,7 +120,7 @@ impl TestRecord {
             flaky: false,
             skipped: false,
             retry_count: 0,
-            group: String::new(),
+            group: group.into(),
             results: Mutex::new(Vec::new()),
             has_recorded_pass: AtomicBool::new(false),
         }
@@ -159,12 +159,6 @@ impl TestRecord {
     /// Marks this test as skipped.
     pub fn set_skipped(mut self) -> Self {
         self.skipped = true;
-        self
-    }
-
-    /// Sets the group name for this test (for JUnit testsuite grouping).
-    pub fn with_group(mut self, group: impl Into<String>) -> Self {
-        self.group = group.into();
         self
     }
 
@@ -259,9 +253,6 @@ impl TestRecord {
         if any_passed && any_failed {
             result.error_message = Some("Flaky - passed on parallel retry".to_string());
         }
-
-        // Copy group from record to result
-        result.group = self.group.clone();
 
         Some(result)
     }
@@ -467,8 +458,8 @@ pub struct TestResult {
 }
 
 impl TestResult {
-    /// Creates a new test result for the given test ID.
-    pub fn new(test_id: impl Into<String>, outcome: TestOutcome) -> Self {
+    /// Creates a new test result for the given test ID and group.
+    pub fn new(test_id: impl Into<String>, outcome: TestOutcome, group: impl Into<String>) -> Self {
         Self {
             test_id: test_id.into(),
             outcome,
@@ -477,7 +468,7 @@ impl TestResult {
             stderr: String::new(),
             error_message: None,
             stack_trace: None,
-            group: String::new(),
+            group: group.into(),
         }
     }
 
@@ -508,12 +499,6 @@ impl TestResult {
     /// Sets the stack trace.
     pub fn with_stack_trace(mut self, trace: impl Into<String>) -> Self {
         self.stack_trace = Some(trace.into());
-        self
-    }
-
-    /// Sets the group name for this result.
-    pub fn with_group(mut self, group: impl Into<String>) -> Self {
-        self.group = group.into();
         self
     }
 }
@@ -595,12 +580,18 @@ pub trait TestFramework: Send + Sync {
     /// * `filters` - Optional filter expression to narrow down test discovery.
     ///   The interpretation of this filter is framework-specific (e.g., test
     ///   name patterns, marker expressions).
+    /// * `group` - Group name to assign to each discovered test record.
     ///
     /// # Returns
     ///
     /// A list of discovered [`TestRecord`] objects, or an error if discovery
     /// failed (command error, parse error, etc.).
-    async fn discover(&self, paths: &[PathBuf], filters: &str) -> FrameworkResult<Vec<TestRecord>>;
+    async fn discover(
+        &self,
+        paths: &[PathBuf],
+        filters: &str,
+        group: &str,
+    ) -> FrameworkResult<Vec<TestRecord>>;
 
     /// Generates a command to run the specified tests.
     ///

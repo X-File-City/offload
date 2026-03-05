@@ -65,7 +65,7 @@ impl CargoFramework {
     /// When filters are applied, nextest includes all tests in the output but marks
     /// each with a `filter-match` field. Only tests with `status: "matches"` (or no
     /// filter-match field) are included in the result.
-    fn parse_json_output(&self, json: &str) -> FrameworkResult<Vec<TestRecord>> {
+    fn parse_json_output(&self, json: &str, group: &str) -> FrameworkResult<Vec<TestRecord>> {
         let listing: NextestListOutput = serde_json::from_str(json)
             .map_err(|e| FrameworkError::DiscoveryFailed(format!("Failed to parse JSON: {}", e)))?;
 
@@ -83,7 +83,7 @@ impl CargoFramework {
 
                 if include {
                     let test_id = format!("{} {}", suite.binary_id, test_name);
-                    tests.push(TestRecord::new(&test_id));
+                    tests.push(TestRecord::new(&test_id, group));
                 }
             }
         }
@@ -97,6 +97,7 @@ impl TestFramework for CargoFramework {
         &self,
         _paths: &[PathBuf],
         filters: &str,
+        group: &str,
     ) -> FrameworkResult<Vec<TestRecord>> {
         let mut cmd_args = vec![
             "nextest".to_string(),
@@ -152,7 +153,7 @@ impl TestFramework for CargoFramework {
             )));
         }
 
-        let tests = self.parse_json_output(&stdout)?;
+        let tests = self.parse_json_output(&stdout, group)?;
 
         if tests.is_empty() {
             tracing::warn!(

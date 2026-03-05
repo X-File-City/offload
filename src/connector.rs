@@ -304,7 +304,7 @@ mod tests {
         ids.into_iter()
             .map(|id| {
                 let file = id.split("::").next().map(PathBuf::from);
-                let mut record = TestRecord::new(id);
+                let mut record = TestRecord::new(id, "test-group");
                 if let Some(f) = file {
                     record = record.with_file(f);
                 }
