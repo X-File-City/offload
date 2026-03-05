@@ -89,7 +89,7 @@ pub struct TestRecord {
     pub retry_count: usize,
 
     /// Group name this test belongs to (for JUnit testsuite grouping).
-    pub group: Option<String>,
+    pub group: String,
 
     /// Results from each execution attempt.
     /// Skipped during serialization as it contains runtime state.
@@ -120,7 +120,7 @@ impl TestRecord {
             flaky: false,
             skipped: false,
             retry_count: 0,
-            group: None,
+            group: String::new(),
             results: Mutex::new(Vec::new()),
             has_recorded_pass: AtomicBool::new(false),
         }
@@ -164,7 +164,7 @@ impl TestRecord {
 
     /// Sets the group name for this test (for JUnit testsuite grouping).
     pub fn with_group(mut self, group: impl Into<String>) -> Self {
-        self.group = Some(group.into());
+        self.group = group.into();
         self
     }
 
@@ -463,7 +463,7 @@ pub struct TestResult {
     pub stack_trace: Option<String>,
 
     /// Group name this test belongs to (for JUnit testsuite grouping).
-    pub group: Option<String>,
+    pub group: String,
 }
 
 impl TestResult {
@@ -477,7 +477,7 @@ impl TestResult {
             stderr: String::new(),
             error_message: None,
             stack_trace: None,
-            group: None,
+            group: String::new(),
         }
     }
 
@@ -513,7 +513,7 @@ impl TestResult {
 
     /// Sets the group name for this result.
     pub fn with_group(mut self, group: impl Into<String>) -> Self {
-        self.group = Some(group.into());
+        self.group = group.into();
         self
     }
 }

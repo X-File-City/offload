@@ -279,7 +279,7 @@ async fn run_tests(
         for group_name in config.groups.keys() {
             let group_tests: Vec<_> = all_tests
                 .iter()
-                .filter(|t| t.group.as_deref() == Some(group_name.as_str()))
+                .filter(|t| t.group == *group_name)
                 .collect();
             if !group_tests.is_empty() {
                 println!("\nGroup '{}':", group_name);
@@ -583,7 +583,7 @@ async fn collect_tests(config_path: &Path, format: &str) -> Result<()> {
             for group_name in config.groups.keys() {
                 let group_tests: Vec<_> = all_tests
                     .iter()
-                    .filter(|t| t.group.as_deref() == Some(group_name.as_str()))
+                    .filter(|t| t.group == *group_name)
                     .collect();
                 if !group_tests.is_empty() {
                     println!("\nGroup '{}':", group_name);
