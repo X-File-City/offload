@@ -214,13 +214,13 @@ Configuration reference:
 
 By default, pytest's JUnit XML output uses a `classname` + `name` format that cannot be losslessly converted back to the original nodeid used during test collection. This causes Offload to report tests as "Not Run" because it cannot match JUnit results to discovered tests.
 
-Add an autouse fixture that writes the full nodeid into the JUnit `name` attribute. Offload's parser already handles `name` values containing `::` by using them verbatim.
+Add a `pytest_runtest_setup` hook that writes the full nodeid into the JUnit `name` attribute. This uses a hook (not a fixture) so it works for **all** test item types, including custom `pytest.Item` subclasses that don't run fixtures. Offload's parser already handles `name` values containing `::` by using them verbatim.
 
 1. Identify the root `conftest.py` for the test paths configured in `offload.toml` (e.g., `tests/conftest.py`)
-2. If a `conftest.py` already exists at that location, check whether it already contains `_set_junit_test_id` or an equivalent `record_xml_attribute("name", ...)` override. If so, **stop and show the user the existing fixture**. Explain that offload needs the JUnit `name` attribute to match collected test IDs, and ask if they want to replace the existing fixture with offload's version. If they approve, replace it. If they decline, switch the `[framework]` section in `offload.toml` to `type = "default"` using the fallback pattern from Step 4, wrapping their existing pytest invocation in custom `discover_command` and `run_command` so that offload controls the `--junitxml` flag directly without needing the conftest fixture.
+2. If a `conftest.py` already exists at that location, check whether it already contains `_set_junit_test_id`, `pytest_runtest_setup` modifying JUnit XML, or an equivalent `record_xml_attribute("name", ...)` override. If so, **stop and show the user the existing hook/fixture**. Explain that offload needs the JUnit `name` attribute to match collected test IDs, and ask if they want to replace it with offload's version. If they approve, replace it. If they decline, switch the `[framework]` section in `offload.toml` to `type = "default"` using the fallback pattern from Step 4, wrapping their existing pytest invocation in custom `discover_command` and `run_command` so that offload controls the `--junitxml` flag directly without needing the conftest hook.
 3. If no `conftest.py` exists, create one. If one exists, append to it.
 
-Add the following fixture:
+Add the following hook:
 
 ```python
 import os
@@ -228,35 +228,31 @@ import os
 import pytest
 
 
-@pytest.fixture(autouse=True)
-def _set_junit_test_id(request: pytest.FixtureRequest, record_xml_attribute) -> None:
+def pytest_runtest_setup(item: pytest.Item) -> None:
     """Set JUnit XML name to the full test ID for exact matching with Offload.
 
-    Uses OFFLOAD_ROOT env var if set (for consistent paths in Offload runs),
-    otherwise falls back to pytest's nodeid directly.
+    Uses a hook instead of a fixture so it applies to all item types,
+    including custom pytest.Item subclasses that don't run fixtures.
     """
-    offload_root = os.environ.get("OFFLOAD_ROOT")
+    from _pytest.junitxml import xml_key
 
+    xml = item.config.stash.get(xml_key, None)
+    if xml is None:
+        return
+
+    offload_root = os.environ.get("OFFLOAD_ROOT")
     if offload_root:
-        # Build full test ID: relative_path::class::method or relative_path::method
-        fspath = str(request.node.fspath)
+        fspath = str(item.fspath)
         rel_path = os.path.relpath(fspath, offload_root)
-        nodeid_parts = request.node.nodeid.split("::")
-        # nodeid_parts[0] is the file path (possibly different due to rootdir), [1:] is class/method
+        nodeid_parts = item.nodeid.split("::")
         test_id = "::".join([rel_path] + nodeid_parts[1:])
     else:
-        test_id = request.node.nodeid
+        test_id = item.nodeid
 
-    record_xml_attribute("name", test_id)
+    xml.node_reporter(item.nodeid).add_attribute("name", test_id)
 ```
 
-Additionally, ensure `junit_family = "xunit1"` is set in the project's pytest configuration. The `record_xml_attribute` fixture is incompatible with the default `xunit2` family. Add it to whichever config file the project uses:
-
-- **pyproject.toml**: Under `[tool.pytest.ini_options]`, add `junit_family = "xunit1"`
-- **pytest.ini**: Add `junit_family = xunit1` under `[pytest]`
-- **setup.cfg**: Add `junit_family = xunit1` under `[tool:pytest]`
-
-Ensure the `import pytest` line is not duplicated if the file already imports it.
+Ensure the `import os` and `import pytest` lines are not duplicated if the file already imports them.
 
 ### Step 6: Create Local Invocation Script
 
