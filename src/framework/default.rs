@@ -33,12 +33,12 @@ impl DefaultFramework {
     /// Parse test discovery command output to extract test records.
     ///
     /// Expects one test ID per line.
-    fn parse_discover_output(&self, output: &str) -> Vec<TestRecord> {
+    fn parse_discover_output(&self, output: &str, group: &str) -> Vec<TestRecord> {
         output
             .lines()
             .map(|line| line.trim())
             .filter(|line| !line.is_empty() && !line.starts_with('#'))
-            .map(TestRecord::new)
+            .map(|line| TestRecord::new(line, group))
             .collect()
     }
 
@@ -63,6 +63,7 @@ impl TestFramework for DefaultFramework {
         &self,
         _paths: &[PathBuf],
         filters: &str,
+        group: &str,
     ) -> FrameworkResult<Vec<TestRecord>> {
         // Substitute {filters} placeholder with actual filters or empty string
         let discover_command = self.config.discover_command.replace("{filters}", filters);
@@ -96,7 +97,7 @@ impl TestFramework for DefaultFramework {
             )));
         }
 
-        let tests = self.parse_discover_output(&stdout);
+        let tests = self.parse_discover_output(&stdout, group);
 
         if tests.is_empty() {
             tracing::warn!(

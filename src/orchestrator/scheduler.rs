@@ -181,33 +181,6 @@ impl Scheduler {
     /// 4. Sort batches by total duration (descending) so heaviest starts first
     ///
     /// This is a greedy 4/3-approximation for the multiprocessor scheduling problem.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use offload::orchestrator::Scheduler;
-    /// use offload::framework::TestRecord;
-    /// use std::collections::HashMap;
-    /// use std::time::Duration;
-    ///
-    /// let scheduler = Scheduler::new(2);
-    /// let records = vec![
-    ///     TestRecord::new("slow_test"),
-    ///     TestRecord::new("fast_test"),
-    ///     TestRecord::new("medium_test"),
-    /// ];
-    /// let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
-    ///
-    /// let mut durations = HashMap::new();
-    /// durations.insert("slow_test".to_string(), Duration::from_secs(10));
-    /// durations.insert("fast_test".to_string(), Duration::from_secs(1));
-    /// durations.insert("medium_test".to_string(), Duration::from_secs(5));
-    ///
-    /// let batches = scheduler.schedule_lpt(&tests, &durations, Duration::from_secs(1), None);
-    /// // Batch 0 (heaviest): slow_test (10s)
-    /// // Batch 1: medium_test (5s), fast_test (1s) = 6s total
-    /// assert_eq!(batches.len(), 2);
-    /// ```
     pub fn schedule_lpt<'a>(
         &self,
         tests: &[TestInstance<'a>],
@@ -335,9 +308,9 @@ mod tests {
     fn test_schedule_lpt_balances_load() {
         let scheduler = Scheduler::new(2);
         let records = [
-            TestRecord::new("slow_test"),
-            TestRecord::new("medium_test"),
-            TestRecord::new("fast_test"),
+            TestRecord::new("slow_test", "test-group"),
+            TestRecord::new("medium_test", "test-group"),
+            TestRecord::new("fast_test", "test-group"),
         ];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
 
@@ -365,9 +338,9 @@ mod tests {
     fn test_schedule_lpt_heaviest_batch_first() {
         let scheduler = Scheduler::new(3);
         let records = [
-            TestRecord::new("test_a"),
-            TestRecord::new("test_b"),
-            TestRecord::new("test_c"),
+            TestRecord::new("test_a", "test-group"),
+            TestRecord::new("test_b", "test-group"),
+            TestRecord::new("test_c", "test-group"),
         ];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
 
@@ -390,8 +363,8 @@ mod tests {
     fn test_schedule_lpt_uses_default_for_unknown() {
         let scheduler = Scheduler::new(2);
         let records = [
-            TestRecord::new("known_slow"),
-            TestRecord::new("unknown_test"),
+            TestRecord::new("known_slow", "test-group"),
+            TestRecord::new("unknown_test", "test-group"),
         ];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
 
@@ -410,7 +383,7 @@ mod tests {
     #[test]
     fn test_schedule_single() {
         let scheduler = Scheduler::new(4);
-        let records = [TestRecord::new("test1")];
+        let records = [TestRecord::new("test1", "test-group")];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
         let batches = scheduler.schedule(&tests);
 
@@ -422,10 +395,10 @@ mod tests {
     fn test_schedule_round_robin() {
         let scheduler = Scheduler::new(2);
         let records = [
-            TestRecord::new("test1"),
-            TestRecord::new("test2"),
-            TestRecord::new("test3"),
-            TestRecord::new("test4"),
+            TestRecord::new("test1", "test-group"),
+            TestRecord::new("test2", "test-group"),
+            TestRecord::new("test3", "test-group"),
+            TestRecord::new("test4", "test-group"),
         ];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
         let batches = scheduler.schedule(&tests);
@@ -443,9 +416,9 @@ mod tests {
     fn test_schedule_individual() {
         let scheduler = Scheduler::new(4);
         let records = [
-            TestRecord::new("test1"),
-            TestRecord::new("test2"),
-            TestRecord::new("test3"),
+            TestRecord::new("test1", "test-group"),
+            TestRecord::new("test2", "test-group"),
+            TestRecord::new("test3", "test-group"),
         ];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
         let batches = scheduler.schedule_individual(&tests);
@@ -460,7 +433,7 @@ mod tests {
     fn test_schedule_with_batch_size() {
         let scheduler = Scheduler::new(4);
         let records: Vec<_> = (0..10)
-            .map(|i| TestRecord::new(format!("test{}", i)))
+            .map(|i| TestRecord::new(format!("test{}", i), "test-group"))
             .collect();
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
         let batches = scheduler.schedule_with_batch_size(&tests, 3);
@@ -477,9 +450,9 @@ mod tests {
         // Simulate retry scenario: same test appears multiple times
         let scheduler = Scheduler::new(3);
         let records = [
-            TestRecord::new("test_a"),
-            TestRecord::new("test_a"), // retry 1
-            TestRecord::new("test_a"), // retry 2
+            TestRecord::new("test_a", "test-group"),
+            TestRecord::new("test_a", "test-group"), // retry 1
+            TestRecord::new("test_a", "test-group"), // retry 2
         ];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
 
@@ -507,10 +480,10 @@ mod tests {
         // Mix of retried and unique tests
         let scheduler = Scheduler::new(3);
         let records = [
-            TestRecord::new("test_a"),
-            TestRecord::new("test_a"), // retry
-            TestRecord::new("test_b"),
-            TestRecord::new("test_c"),
+            TestRecord::new("test_a", "test-group"),
+            TestRecord::new("test_a", "test-group"), // retry
+            TestRecord::new("test_b", "test-group"),
+            TestRecord::new("test_c", "test-group"),
         ];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
 
@@ -541,9 +514,9 @@ mod tests {
         // 2 workers but 3 instances of same test — creates 3 batches (one per instance)
         let scheduler = Scheduler::new(2);
         let records = [
-            TestRecord::new("test_a"),
-            TestRecord::new("test_a"),
-            TestRecord::new("test_a"),
+            TestRecord::new("test_a", "test-group"),
+            TestRecord::new("test_a", "test-group"),
+            TestRecord::new("test_a", "test-group"),
         ];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
 
@@ -562,10 +535,10 @@ mod tests {
     fn test_schedule_lpt_respects_max_batch_duration() {
         let scheduler = Scheduler::new(2);
         let records = [
-            TestRecord::new("test_a"),
-            TestRecord::new("test_b"),
-            TestRecord::new("test_c"),
-            TestRecord::new("test_d"),
+            TestRecord::new("test_a", "test-group"),
+            TestRecord::new("test_b", "test-group"),
+            TestRecord::new("test_c", "test-group"),
+            TestRecord::new("test_d", "test-group"),
         ];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
 
@@ -604,7 +577,10 @@ mod tests {
     #[test]
     fn test_schedule_lpt_long_test_gets_own_batch() -> anyhow::Result<()> {
         let scheduler = Scheduler::new(2);
-        let records = [TestRecord::new("slow_test"), TestRecord::new("fast_test")];
+        let records = [
+            TestRecord::new("slow_test", "test-group"),
+            TestRecord::new("fast_test", "test-group"),
+        ];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
 
         let mut durations = HashMap::new();
@@ -636,7 +612,7 @@ mod tests {
         // But only 2 workers, so tests get split: batch 0 = 3 tests (9s), batch 1 = 2 tests (6s)
         let scheduler = Scheduler::new(2);
         let records: Vec<_> = (0..7)
-            .map(|i| TestRecord::new(format!("test_{}", i)))
+            .map(|i| TestRecord::new(format!("test_{}", i), "test-group"))
             .collect();
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
 
@@ -681,8 +657,8 @@ mod tests {
         // Create tests whose IDs together exceed MAX_BATCH_COMMAND_LEN
         let long_name = "a".repeat(MAX_BATCH_COMMAND_LEN / 2 + 1);
         let records = [
-            TestRecord::new(format!("{long_name}_1")),
-            TestRecord::new(format!("{long_name}_2")),
+            TestRecord::new(format!("{long_name}_1"), "test-group"),
+            TestRecord::new(format!("{long_name}_2"), "test-group"),
         ];
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
 
@@ -698,7 +674,9 @@ mod tests {
     fn test_schedule_lpt_groups_short_commands() {
         let scheduler = Scheduler::new(1);
         // Create many tests with short IDs that fit in one batch
-        let records: Vec<_> = (0..100).map(|i| TestRecord::new(format!("t{i}"))).collect();
+        let records: Vec<_> = (0..100)
+            .map(|i| TestRecord::new(format!("t{i}"), "test-group"))
+            .collect();
         let tests: Vec<_> = records.iter().map(|r| r.test()).collect();
 
         let batches = scheduler.schedule_lpt(&tests, &HashMap::new(), Duration::from_secs(0), None);

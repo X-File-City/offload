@@ -56,14 +56,14 @@ impl PytestFramework {
     }
 
     /// Parse `pytest --collect-only -q` output to extract test records.
-    fn parse_collect_output(&self, output: &str) -> Vec<TestRecord> {
+    fn parse_collect_output(&self, output: &str, group: &str) -> Vec<TestRecord> {
         let mut tests = Vec::new();
 
         for line in output.lines() {
             let trimmed = line.trim();
             // Simple format: tests/test_foo.py::test_bar
             if trimmed.contains("::") && !trimmed.starts_with('<') && !trimmed.contains(' ') {
-                tests.push(TestRecord::new(trimmed));
+                tests.push(TestRecord::new(trimmed, group));
             }
         }
 
@@ -73,7 +73,12 @@ impl PytestFramework {
 
 #[async_trait]
 impl TestFramework for PytestFramework {
-    async fn discover(&self, paths: &[PathBuf], filters: &str) -> FrameworkResult<Vec<TestRecord>> {
+    async fn discover(
+        &self,
+        paths: &[PathBuf],
+        filters: &str,
+        group: &str,
+    ) -> FrameworkResult<Vec<TestRecord>> {
         // Build the pytest --collect-only command
         let (program, prefix_args) = self.command_prefix();
         let mut cmd = tokio::process::Command::new(&program);
@@ -130,7 +135,7 @@ impl TestFramework for PytestFramework {
             )));
         }
 
-        let tests = self.parse_collect_output(&stdout);
+        let tests = self.parse_collect_output(&stdout, group);
 
         if tests.is_empty() {
             tracing::warn!(
@@ -218,7 +223,7 @@ mod tests {
             ..Default::default()
         };
         let fw = PytestFramework::new(config);
-        let record = TestRecord::new("tests/test_a.py::test_one");
+        let record = TestRecord::new("tests/test_a.py::test_one", "test-group");
         let tests = vec![TestInstance::new(&record)];
         let cmd = fw.produce_test_execution_command(&tests, "/tmp/junit.xml");
         assert_eq!(cmd.program, "uv");
@@ -235,7 +240,7 @@ mod tests {
             ..Default::default()
         };
         let fw = PytestFramework::new(config);
-        let record = TestRecord::new("tests/test_a.py::test_one");
+        let record = TestRecord::new("tests/test_a.py::test_one", "test-group");
         let tests = vec![TestInstance::new(&record)];
         let cmd = fw.produce_test_execution_command(&tests, "/tmp/junit.xml");
         // run_args should NOT be applied since command is None

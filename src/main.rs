@@ -274,28 +274,25 @@ async fn run_tests(
         let tests = match &config.framework {
             FrameworkConfig::Pytest(cfg) => {
                 PytestFramework::new(cfg.clone())
-                    .discover(&[], &group_cfg.filters)
+                    .discover(&[], &group_cfg.filters, group_name)
                     .await?
             }
             FrameworkConfig::Cargo(cfg) => {
                 CargoFramework::new(cfg.clone())
-                    .discover(&[], &group_cfg.filters)
+                    .discover(&[], &group_cfg.filters, group_name)
                     .await?
             }
             FrameworkConfig::Default(cfg) => {
                 DefaultFramework::new(cfg.clone())
-                    .discover(&[], &group_cfg.filters)
+                    .discover(&[], &group_cfg.filters, group_name)
                     .await?
             }
         };
 
-        // Tag tests with group info
+        // Tag tests with group retry count
         let group_tests: Vec<TestRecord> = tests
             .into_iter()
-            .map(|t| {
-                t.with_retry_count(group_cfg.retry_count)
-                    .with_group(group_name.clone())
-            })
+            .map(|t| t.with_retry_count(group_cfg.retry_count))
             .collect();
 
         all_tests.extend(group_tests);
@@ -313,7 +310,7 @@ async fn run_tests(
         for group_name in config.groups.keys() {
             let group_tests: Vec<_> = all_tests
                 .iter()
-                .filter(|t| t.group.as_deref() == Some(group_name.as_str()))
+                .filter(|t| t.group == *group_name)
                 .collect();
             if !group_tests.is_empty() {
                 println!("\nGroup '{}':", group_name);
@@ -628,28 +625,25 @@ async fn collect_tests(config_path: &Path, format: &str) -> Result<()> {
         let tests = match &config.framework {
             FrameworkConfig::Pytest(cfg) => {
                 PytestFramework::new(cfg.clone())
-                    .discover(&[], &group_cfg.filters)
+                    .discover(&[], &group_cfg.filters, group_name)
                     .await?
             }
             FrameworkConfig::Cargo(cfg) => {
                 CargoFramework::new(cfg.clone())
-                    .discover(&[], &group_cfg.filters)
+                    .discover(&[], &group_cfg.filters, group_name)
                     .await?
             }
             FrameworkConfig::Default(cfg) => {
                 DefaultFramework::new(cfg.clone())
-                    .discover(&[], &group_cfg.filters)
+                    .discover(&[], &group_cfg.filters, group_name)
                     .await?
             }
         };
 
-        // Tag tests with group info
+        // Tag tests with group retry count
         let group_tests: Vec<TestRecord> = tests
             .into_iter()
-            .map(|t| {
-                t.with_retry_count(group_cfg.retry_count)
-                    .with_group(group_name.clone())
-            })
+            .map(|t| t.with_retry_count(group_cfg.retry_count))
             .collect();
 
         all_tests.extend(group_tests);
@@ -669,7 +663,7 @@ async fn collect_tests(config_path: &Path, format: &str) -> Result<()> {
             for group_name in config.groups.keys() {
                 let group_tests: Vec<_> = all_tests
                     .iter()
-                    .filter(|t| t.group.as_deref() == Some(group_name.as_str()))
+                    .filter(|t| t.group == *group_name)
                     .collect();
                 if !group_tests.is_empty() {
                     println!("\nGroup '{}':", group_name);
