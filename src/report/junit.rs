@@ -555,8 +555,7 @@ pub fn load_test_durations(
         }
     }
 
-    // Print to stdout so it's always visible
-    eprintln!(
+    info!(
         "Loaded {} test durations from {} using format '{}'",
         durations.len(),
         junit_path.display(),
@@ -567,12 +566,12 @@ pub fn load_test_durations(
     if !durations.is_empty() {
         let mut samples: Vec<_> = durations.iter().collect();
         samples.sort_by(|a, b| b.1.cmp(a.1)); // Sort by duration descending
-        eprintln!("Test durations loaded (sorted by duration):");
+        info!("Test durations loaded (sorted by duration):");
         for (test_id, duration) in samples.iter().take(10) {
-            eprintln!("  {:.3}s  {}", duration.as_secs_f64(), test_id);
+            info!("  {:.3}s  {}", duration.as_secs_f64(), test_id);
         }
         if samples.len() > 10 {
-            eprintln!("  ... and {} more", samples.len() - 10);
+            info!("  ... and {} more", samples.len() - 10);
         }
     }
 
