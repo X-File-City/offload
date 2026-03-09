@@ -99,6 +99,27 @@ impl TestRecord {
         self.file = Some(file.into());
         self
     }
+
+    /// Creates a `TestInstance` handle for execution in a sandbox.
+    pub fn test(&self) -> TestInstance<'_> {
+        TestInstance::new(self)
+    }
+}
+
+/// A lightweight handle to a test for execution in a sandbox.
+#[derive(Debug, Clone, Copy)]
+pub struct TestInstance<'a> {
+    record: &'a TestRecord,
+}
+
+impl<'a> TestInstance<'a> {
+    pub fn new(record: &'a TestRecord) -> Self {
+        Self { record }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.record.id
+    }
 }
 
 /// The result of executing a single test.
@@ -248,7 +269,7 @@ pub trait TestFramework: Send + Sync {
     /// # Arguments
     ///
     /// * `tests` - Tests to execute (borrowed from TestRecords)
-    fn produce_test_execution_command(&self, tests: &[&TestRecord], result_path: &str) -> Command;
+    fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command;
 }
 
 #[cfg(test)]
