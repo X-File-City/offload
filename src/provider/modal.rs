@@ -2,14 +2,13 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use async_trait::async_trait;
-use futures::StreamExt;
 use tracing::debug;
 
 use super::default::DefaultSandbox;
-use super::{OutputLine, ProviderError, ProviderResult, SandboxProvider};
+use super::{ProviderError, ProviderResult, SandboxProvider, run_prepare_command};
 use crate::config::{ModalProviderConfig, SandboxConfig};
 use crate::connector::{Connector, ShellConnector};
 
@@ -112,65 +111,8 @@ impl ModalProvider {
 
         debug!("Running prepare command: {}", prepare_cmd);
 
-        // Helper: emit a prepare log line, buffering while discovery is
-        // still running so the two streams don't interleave.
-        let mut buffer: Vec<String> = Vec::new();
-        let emit = |msg: String, buf: &mut Vec<String>| {
-            if discovery_done.is_some_and(|flag| !flag.load(Ordering::Acquire)) {
-                buf.push(msg);
-            } else {
-                for buffered in buf.drain(..) {
-                    eprintln!("{}", buffered);
-                }
-                eprintln!("{}", msg);
-            }
-        };
-
-        emit(
-            "[prepare] Preparing Modal environment...".to_string(),
-            &mut buffer,
-        );
-
-        // Stream output, buffering while discovery is in-flight
-        let mut stream = connector.run_stream(&prepare_cmd).await?;
-        let mut last_stdout_line = String::new();
-        let mut exit_code = 0;
-
-        while let Some(line) = stream.next().await {
-            match line {
-                OutputLine::Stdout(s) => {
-                    emit(format!("[prepare]   {}", s), &mut buffer);
-                    last_stdout_line = s;
-                }
-                OutputLine::Stderr(s) => {
-                    emit(format!("[prepare]   {}", s), &mut buffer);
-                }
-                OutputLine::ExitCode(code) => {
-                    exit_code = code;
-                }
-            }
-        }
-
-        // Flush any remaining buffered output
-        for buffered in buffer.drain(..) {
-            eprintln!("{}", buffered);
-        }
-
-        if exit_code != 0 {
-            return Err(ProviderError::ExecFailed(format!(
-                "Modal prepare command failed with exit code {}",
-                exit_code
-            )));
-        }
-
-        // Image ID is the last line of stdout
-        let image_id = last_stdout_line.trim().to_string();
-
-        if image_id.is_empty() {
-            return Err(ProviderError::ExecFailed(
-                "Modal prepare command returned empty image_id".to_string(),
-            ));
-        }
+        let image_id =
+            run_prepare_command(&connector, &prepare_cmd, "Modal", discovery_done).await?;
 
         debug!("Modal image prepared with ID: {}", image_id);
 

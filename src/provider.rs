@@ -6,11 +6,13 @@ pub mod modal;
 
 use std::path::Path;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 
 use crate::config::SandboxConfig;
+use crate::connector::{Connector, ShellConnector};
 
 /// Result type for provider operations.
 ///
@@ -258,6 +260,74 @@ pub trait Sandbox: Send {
     ///
     /// This method is idempotent - calling it multiple times is safe.
     async fn terminate(&self) -> ProviderResult<()>;
+}
+
+/// Streams a prepare command, buffering output while discovery is in-flight.
+/// Returns the image_id (last stdout line) on success.
+pub(crate) async fn run_prepare_command(
+    connector: &ShellConnector,
+    command: &str,
+    label: &str,
+    discovery_done: Option<&AtomicBool>,
+) -> ProviderResult<String> {
+    let mut buffer: Vec<String> = Vec::new();
+    let emit = |msg: String, buf: &mut Vec<String>| {
+        if discovery_done.is_some_and(|flag| !flag.load(Ordering::Acquire)) {
+            buf.push(msg);
+        } else {
+            for buffered in buf.drain(..) {
+                eprintln!("{}", buffered);
+            }
+            eprintln!("{}", msg);
+        }
+    };
+
+    emit(
+        format!("[prepare] Preparing {} environment...", label),
+        &mut buffer,
+    );
+
+    let mut stream = connector.run_stream(command).await?;
+    let mut last_stdout_line = String::new();
+    let mut exit_code = 0;
+
+    while let Some(line) = stream.next().await {
+        match line {
+            OutputLine::Stdout(s) => {
+                emit(format!("[prepare]   {}", s), &mut buffer);
+                last_stdout_line = s;
+            }
+            OutputLine::Stderr(s) => {
+                emit(format!("[prepare]   {}", s), &mut buffer);
+            }
+            OutputLine::ExitCode(code) => {
+                exit_code = code;
+            }
+        }
+    }
+
+    // Flush any remaining buffered output
+    for buffered in buffer.drain(..) {
+        eprintln!("{}", buffered);
+    }
+
+    if exit_code != 0 {
+        return Err(ProviderError::ExecFailed(format!(
+            "{} prepare command failed with exit code {}",
+            label, exit_code
+        )));
+    }
+
+    let image_id = last_stdout_line.trim().to_string();
+
+    if image_id.is_empty() {
+        return Err(ProviderError::ExecFailed(format!(
+            "{} prepare command returned empty image_id",
+            label
+        )));
+    }
+
+    Ok(image_id)
 }
 
 /// Escape a string for use in a shell command.

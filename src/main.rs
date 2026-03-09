@@ -214,6 +214,25 @@ async fn discover_all_tests(
     Ok(all_tests)
 }
 
+/// Discover tests concurrently with provider preparation, signalling completion.
+async fn discover_with_signal(
+    framework: &FrameworkConfig,
+    groups: &HashMap<String, GroupConfig>,
+    discovery_done: &AtomicBool,
+) -> Result<Vec<TestRecord>> {
+    eprintln!("[discover] Discovering tests...");
+    let result = discover_all_tests(framework, groups).await;
+    if let Ok(ref tests) = result {
+        eprintln!(
+            "[discover] found {} tests across {} groups",
+            tests.len(),
+            groups.len()
+        );
+    }
+    discovery_done.store(true, Ordering::Release);
+    result
+}
+
 /// Dispatch test execution to the appropriate framework, using the given provider.
 async fn dispatch_framework<P: offload::provider::SandboxProvider>(
     config: &Config,
@@ -371,6 +390,12 @@ async fn run_tests(
         return Ok(());
     }
 
+    // Convert copy_dirs to tuples once (used by Default and Modal providers)
+    let copy_dir_tuples: Vec<(PathBuf, PathBuf)> = copy_dirs
+        .iter()
+        .map(|cd| (cd.local.clone(), cd.remote.clone()))
+        .collect();
+
     // Phase 1+2: Discover tests and prepare provider (concurrently where possible)
     let exit_code = match &config.provider {
         ProviderConfig::Local(p_cfg) => {
@@ -397,26 +422,10 @@ async fn run_tests(
             .await?
         }
         ProviderConfig::Default(p_cfg) => {
-            let copy_dir_tuples: Vec<(PathBuf, PathBuf)> = copy_dirs
-                .iter()
-                .map(|cd| (cd.local.clone(), cd.remote.clone()))
-                .collect();
             // Run discovery and image preparation concurrently
             let discovery_done = AtomicBool::new(false);
             let (all_tests, provider) = tokio::try_join!(
-                async {
-                    eprintln!("[discover] Discovering tests...");
-                    let result = discover_all_tests(&config.framework, &config.groups).await;
-                    if let Ok(ref tests) = result {
-                        eprintln!(
-                            "[discover] found {} tests across {} groups",
-                            tests.len(),
-                            config.groups.len()
-                        );
-                    }
-                    discovery_done.store(true, Ordering::Release);
-                    result
-                },
+                discover_with_signal(&config.framework, &config.groups, &discovery_done),
                 async {
                     let _span = tracer.span(
                         "image_prepare",
@@ -442,26 +451,10 @@ async fn run_tests(
             dispatch_framework(&config, &all_tests, provider, &copy_dirs, verbose, &tracer).await?
         }
         ProviderConfig::Modal(p_cfg) => {
-            let copy_dir_tuples: Vec<(PathBuf, PathBuf)> = copy_dirs
-                .iter()
-                .map(|cd| (cd.local.clone(), cd.remote.clone()))
-                .collect();
             // Run discovery and image preparation concurrently
             let discovery_done = AtomicBool::new(false);
             let (all_tests, provider) = tokio::try_join!(
-                async {
-                    eprintln!("[discover] Discovering tests...");
-                    let result = discover_all_tests(&config.framework, &config.groups).await;
-                    if let Ok(ref tests) = result {
-                        eprintln!(
-                            "[discover] found {} tests across {} groups",
-                            tests.len(),
-                            config.groups.len()
-                        );
-                    }
-                    discovery_done.store(true, Ordering::Release);
-                    result
-                },
+                discover_with_signal(&config.framework, &config.groups, &discovery_done),
                 async {
                     let _span = tracer.span(
                         "image_prepare",
