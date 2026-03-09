@@ -22,7 +22,6 @@ pub fn print_summary(result: &RunResult) {
     println!("  Total:   {}", result.total_tests);
     println!("  Passed:  {}", console::style(result.passed).green());
     println!("  Failed:  {}", console::style(result.failed).red());
-    println!("  Skipped: {}", console::style(result.skipped).yellow());
 
     if result.not_run > 0 {
         println!("  Not Run: {}", console::style(result.not_run).red().bold());

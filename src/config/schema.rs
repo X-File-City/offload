@@ -57,14 +57,6 @@ pub struct OffloadConfig {
     /// the current working directory is used.
     pub working_dir: Option<PathBuf>,
 
-    /// Stream test output in real-time instead of buffering.
-    /// Deprecated: kept only for backward compatibility with existing TOML
-    /// files. This field is ignored — output is always logged to
-    /// per-runner files in `{output_dir}/logs/`. TODO: remove this field
-    /// once external configs have been updated.
-    #[serde(default)]
-    pub stream_output: bool,
-
     /// Project root path on the remote sandbox.
     ///
     /// Exported as OFFLOAD_ROOT environment variable in the sandbox.
@@ -630,7 +622,6 @@ mod tests {
                 max_parallel: 10,
                 test_timeout_secs: 900,
                 working_dir: None,
-                stream_output: false,
                 sandbox_project_root: "/app".to_string(),
                 sandbox_init_cmd: None,
             },
@@ -661,7 +652,6 @@ mod tests {
                 max_parallel: 10,
                 test_timeout_secs: 900,
                 working_dir: None,
-                stream_output: false,
                 sandbox_project_root: "/app".to_string(),
                 sandbox_init_cmd: None,
             },
@@ -690,7 +680,6 @@ mod tests {
                 max_parallel: 10,
                 test_timeout_secs: 900,
                 working_dir: None,
-                stream_output: false,
                 sandbox_project_root: "/app".to_string(),
                 sandbox_init_cmd: None,
             },

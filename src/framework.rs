@@ -62,18 +62,6 @@ pub struct TestRecord {
     /// Source file where the test is defined.
     pub file: Option<PathBuf>,
 
-    /// Line number where the test is defined.
-    pub line: Option<u32>,
-
-    /// Tags, markers, or labels associated with the test.
-    pub markers: Vec<String>,
-
-    /// Whether this test is known to be flaky.
-    pub flaky: bool,
-
-    /// Whether this test should be skipped.
-    pub skipped: bool,
-
     /// Number of times to retry this test if it fails.
     /// Set per-test to allow group-specific retry counts.
     pub retry_count: usize,
@@ -95,10 +83,6 @@ impl TestRecord {
             id,
             name,
             file: None,
-            line: None,
-            markers: Vec::new(),
-            flaky: false,
-            skipped: false,
             retry_count: 0,
             group: group.into(),
         }

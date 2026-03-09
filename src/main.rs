@@ -586,12 +586,7 @@ async fn collect_tests(config_path: &Path, format: &str) -> Result<()> {
                 if !group_tests.is_empty() {
                     println!("\nGroup '{}':", group_name);
                     for test in group_tests {
-                        let markers = if test.markers.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" [{}]", test.markers.join(", "))
-                        };
-                        println!("  {}{}", test.id, markers);
+                        println!("  {}", test.id);
                     }
                 }
             }
@@ -697,7 +692,6 @@ fn init_config(provider: &str, framework: &str) -> Result<()> {
             max_parallel: 10,
             test_timeout_secs: 900,
             working_dir: None,
-            stream_output: false,
             sandbox_project_root: "/app".to_string(),
             sandbox_init_cmd: None,
         },
