@@ -26,14 +26,16 @@ Investigate how the repository runs its tests:
 
 Ask the user to confirm your detection if anything is ambiguous.
 
-Before proceeding, verify the following are installed and authenticated. **Do not continue until all prerequisites are confirmed.**
+### Step 2: Verify Prerequisites
+
+Verify the following are installed and authenticated. **Do not continue until all prerequisites are confirmed.**
 
 - `uv` (**required** — Offload uses `uv` to run the Modal sandbox script regardless of project language or package manager)
 - `modal` CLI — must be installed (`pip install modal`) **and** authenticated. Run `modal profile list` to check. If not authenticated, tell the user to run `modal token new` (opens a browser, writes credentials to `~/.modal.toml`). **Wait for the user to confirm authentication before proceeding.**
 - For pytest projects: the configured Python runner (`uv`, `poetry`, or `python`) and pytest must be available locally for test discovery
 - For cargo projects: `cargo-nextest` must be installed (`cargo install cargo-nextest`)
 
-### Step 2: Find or Create a Dockerfile
+### Step 3: Find or Create a Dockerfile
 
 Offload's Modal provider needs a Dockerfile to build sandbox images. Look for an existing one:
 
@@ -76,7 +78,7 @@ Key principles:
 - Do NOT `COPY . .` — Offload overlays source via `--copy-dir` at image build time
 - Keep it minimal — dependencies are installed at runtime inside the sandbox
 
-### Step 3: Create offload.toml
+### Step 4: Create offload.toml
 
 Create `offload.toml` at the project root. There are two provider patterns — choose the one that fits your project.
 
@@ -183,7 +185,7 @@ Configuration reference:
 - `sandbox_project_root`: The path where project files live inside the sandbox, exported as `OFFLOAD_ROOT`
 - `retry_count`: Number of retries for failed tests (0 = no retries, 1 = catches transient failures)
 
-### Step 4: Add JUnit ID Normalization (pytest only)
+### Step 5: Add JUnit ID Normalization (pytest only)
 
 **Skip this step if the framework is not `pytest`.**
 
@@ -192,7 +194,7 @@ By default, pytest's JUnit XML output uses a `classname` + `name` format that ca
 There are two approaches. **Try Approach A first** (preferred). If it fails (e.g., due to pytest version incompatibility or internal API changes), fall back to **Approach B**.
 
 1. Identify the root `conftest.py` for the test paths configured in `offload.toml` (e.g., `tests/conftest.py`)
-2. If a `conftest.py` already exists at that location, check whether it already contains `_set_junit_test_id`, `pytest_runtest_setup` modifying JUnit XML, or an equivalent `record_xml_attribute("name", ...)` override. If so, **stop and show the user the existing hook/fixture**. Explain that offload needs the JUnit `name` attribute to match collected test IDs, and ask if they want to replace it with offload's version. If they approve, replace it. If they decline, switch the `[framework]` section in `offload.toml` to `type = "default"` using the fallback pattern from Step 3, wrapping their existing pytest invocation in custom `discover_command` and `run_command` so that offload controls the `--junitxml` flag directly without needing the conftest hook.
+2. If a `conftest.py` already exists at that location, check whether it already contains `_set_junit_test_id`, `pytest_runtest_setup` modifying JUnit XML, or an equivalent `record_xml_attribute("name", ...)` override. If so, **stop and show the user the existing hook/fixture**. Explain that offload needs the JUnit `name` attribute to match collected test IDs, and ask if they want to replace it with offload's version. If they approve, replace it. If they decline, switch the `[framework]` section in `offload.toml` to `type = "default"` using the fallback pattern from Step 4, wrapping their existing pytest invocation in custom `discover_command` and `run_command` so that offload controls the `--junitxml` flag directly without needing the conftest hook.
 3. If no `conftest.py` exists, create one. If one exists, append to it.
 
 Offload's parser already handles `name` values containing `::` by using them verbatim.
@@ -259,7 +261,7 @@ def _set_junit_test_id(request: pytest.FixtureRequest, record_xml_attribute) -> 
 
 Ensure imports (`os`, `pytest`) are not duplicated if the file already has them.
 
-### Step 5: Create Local Invocation Script
+### Step 6: Create Local Invocation Script
 
 Create `scripts/offload-tests.sh`:
 
@@ -288,7 +290,7 @@ The `--copy-dir` flag tells Offload to copy the local directory into the sandbox
 
 If the project uses a Makefile, justfile, or Taskfile instead of scripts/, add the invocation there instead to be consistent with existing practice.
 
-### Step 6: Update .gitignore
+### Step 7: Update .gitignore
 
 Append Offload artifacts to `.gitignore`:
 
@@ -299,7 +301,7 @@ test-results/
 
 NOTE: `.offload-image-cache` should be checked in to git — it tracks the base image ID and speeds up subsequent runs.
 
-### Step 7: Run Offload Locally and Verify
+### Step 8: Run Offload Locally and Verify
 
 Install offload if not already present:
 
@@ -307,7 +309,7 @@ Install offload if not already present:
 cargo install offload@0.5.0
 ```
 
-Run the tests using the invocation script from Step 5:
+Run the tests using the invocation script from Step 6:
 
 ```bash
 ./scripts/offload-tests.sh
@@ -322,7 +324,7 @@ Run the tests using the invocation script from Step 5:
 
 Do not proceed to optimization until all tests pass.
 
-### Step 8: Optimize Parallelism
+### Step 9: Optimize Parallelism
 
 Run a simple linear search over `max_parallel` to minimize total runtime:
 
@@ -335,11 +337,11 @@ The optimal `max_parallel` depends on the number of test files and per-test dura
 
 Report the results as a table to the user and set the optimal values in `offload.toml`.
 
-### Step 9: Update Agent/Project Instructions (Optional)
+### Step 10: Update Agent/Project Instructions (Optional)
 
 **First, ask the user:** "Would you like to configure Offload as the default test runner for AI agents working in this repository? This requires agents to have access to Modal API credentials."
 
-**If the user declines**, skip this step entirely and proceed to Step 10.
+**If the user declines**, skip this step entirely and proceed to Step 11.
 
 **If the user agrees**, ensure that future AI agents working in this repository know to use Offload for running tests:
 
@@ -372,9 +374,9 @@ Report the results as a table to the user and set the optimal values in `offload
 
 6. Preserve the existing tone and formatting of the file. If it uses a digraph, bullet lists, or a specific heading style, match that style. Do not restructure or reformat existing content.
 
-### Step 10: Set Up CI Job (optional)
+### Step 11: Set Up CI Job (optional)
 
-Ask the user if they want to set up a CI job to run Offload tests automatically on push/PR. If they decline, skip Steps 10 and 11.
+Ask the user if they want to set up a CI job to run Offload tests automatically on push/PR. If they decline, skip Steps 11 and 12.
 
 If they want CI, detect the CI system from the repository:
 - `.github/workflows/` → GitHub Actions
@@ -451,7 +453,7 @@ jobs:
 
 For other CI systems, adapt the same pattern: install Offload + Modal CLI, set Modal secrets as env vars, run `offload run`.
 
-### Step 11: Configure CI Secrets
+### Step 12: Configure CI Secrets
 
 Tell the user they need to add two repository secrets:
 - `MODAL_TOKEN_ID`: Their Modal API token ID
