@@ -278,7 +278,7 @@ Append Offload artifacts to `.gitignore`:
 test-results/
 ```
 
-NOTE: `.offload-image-cache` should be checked in to git — it tracks the base image ID and speeds up subsequent runs.
+NOTE: `.offload-image-cache` should be checked in to git — it tracks the base image ID and speeds up subsequent runs. Do not confuse `.gitignore` (which controls what git tracks) with `.dockerignore` (which controls what gets copied into the sandbox image). The `.dockerignore` is only created if needed during troubleshooting — see the Troubleshooting section.
 
 ### Step 8: Run Offload Locally and Verify
 
