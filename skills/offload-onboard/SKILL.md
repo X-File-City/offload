@@ -487,7 +487,7 @@ If tests fail due to local artifacts leaking into the sandbox (e.g. "Exec format
 .github
 __pycache__
 *.egg-info
-.offload-image-cache  # excluded from sandbox, but should be checked in to git
+.offload-image-cache  # excluded from Docker build context, but should be checked in to git
 test-results
 build
 dist
