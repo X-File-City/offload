@@ -80,59 +80,18 @@ Key principles:
 
 ### Step 4: Create offload.toml
 
-Create `offload.toml` at the project root. There are two provider patterns — choose the one that fits your project.
-
-**Pattern A — Modal provider (recommended for most cases):**
-
-This is the simpler option. Offload manages the Modal sandbox lifecycle for you. Use this unless you need custom build steps or non-standard directory layouts.
+Create `offload.toml` at the project root using the Modal provider:
 
 ```toml
 [offload]
 max_parallel = 3
 test_timeout_secs = 120
-stream_output = true
 sandbox_project_root = "/app"
 
 [provider]
 type = "modal"
 dockerfile = "{path-to-dockerfile}"
 include_cwd = true
-
-[framework]
-type = "pytest"
-paths = ["{test-paths}"]
-python = "{runner}"              # e.g. "python", "uv"
-extra_args = ["{extra-args}"]    # e.g. ["run", "--with=pytest"] for uv
-
-[groups.all]
-retry_count = 0
-filters = ""                    # pytest args for discovery filtering (e.g. "-m 'not slow'")
-
-[report]
-output_dir = "test-results"
-junit = true
-junit_file = "junit.xml"
-```
-
-**Pattern B — Default provider with Modal scripts (for more control):**
-
-Use this when you need full control over the sandbox lifecycle — for example, custom build steps, non-standard directory layouts, or monorepo setups where you need to run commands between image creation and test execution.
-
-```toml
-[offload]
-max_parallel = 3
-test_timeout_secs = 120
-stream_output = true
-sandbox_project_root = "/app"
-
-[provider]
-type = "default"
-prepare_command = "uv run @modal_sandbox.py prepare --include-cwd {path-to-dockerfile}"
-create_command = "uv run @modal_sandbox.py create {image_id}"
-exec_command = "uv run @modal_sandbox.py exec {sandbox_id} {command}"
-destroy_command = "uv run @modal_sandbox.py destroy {sandbox_id}"
-download_command = "uv run @modal_sandbox.py download {sandbox_id} {paths}"
-timeout_secs = 600
 
 [framework]
 type = "pytest"
@@ -157,25 +116,44 @@ junit_file = "junit.xml"
 type = "cargo"
 ```
 
-**When to use `type = "default"` (even for pytest/cargo projects):**
+**Optional: `sandbox_init_cmd` for build-time setup**
 
-The built-in `pytest` and `cargo` frameworks cover straightforward setups. Fall back to `type = "default"` when:
+Do not add `sandbox_init_cmd` initially. If you observe that every sandbox runs the same setup work (e.g. `uv sync --all-packages`, `git apply`, database migrations), move that work into `sandbox_init_cmd` so it runs once during image build instead of on every sandbox:
 
-- **Monorepo / workspace setup**: Discovery or execution needs pre-steps like `uv sync --all-packages` or `npm install` across packages
+```toml
+[offload]
+max_parallel = 3
+test_timeout_secs = 120
+sandbox_project_root = "/app"
+sandbox_init_cmd = "uv sync --all-packages"   # runs once at image build time
+```
+
+This is especially useful for monorepo setups where dependency installation is slow.
+
+**When to use `type = "default"` for the framework:**
+
+The built-in `pytest` and `cargo` frameworks cover straightforward setups. Fall back to `type = "default"` for the `[framework]` section when:
+
 - **Conflicting local config**: The project's `pyproject.toml` or `setup.cfg` has `addopts` that conflict with Offload (e.g. xdist workers, coverage plugins) and you need to override them with `-o addopts=` or `-p no:xdist`
-- **Pre-test commands**: Tests need setup before running (e.g. `git apply` for patches, database migrations, service startup)
 - **Custom discovery pipeline**: Standard collection doesn't work and you need shell pipelines (e.g. grep filtering, marker exclusions combined with workspace sync)
 - **Unsupported framework**: Jest, Go, Mocha, or any framework not directly supported
 
-Example — pytest in a monorepo with xdist conflict:
+Example — pytest in a monorepo with xdist conflict (still using the Modal provider):
 
 ```toml
+[provider]
+type = "modal"
+dockerfile = "{path-to-dockerfile}"
+include_cwd = true
+
 [framework]
 type = "default"
-discover_command = "uv sync --all-packages && uv run pytest --collect-only -q {filters} 2>/dev/null | grep '::'"
-run_command = "cd /app && uv sync --all-packages && uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= --junitxml={result_file} {tests}"
+discover_command = "uv run pytest --collect-only -q {filters} 2>/dev/null | grep '::'"
+run_command = "cd /app && uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= --junitxml={result_file} {tests}"
 test_id_format = "{name}"
 ```
+
+Note: if discovery or execution requires pre-steps like `uv sync --all-packages`, use `sandbox_init_cmd` in the `[offload]` section rather than inlining them into the discover/run commands.
 
 For the full configuration reference and more examples, see the Offload README.
 
@@ -183,6 +161,7 @@ Configuration reference:
 - `max_parallel`: Number of concurrent Modal sandboxes (start with 3, optimize later)
 - `test_timeout_secs`: Per-test-batch timeout (120s is generous for unit tests)
 - `sandbox_project_root`: The path where project files live inside the sandbox, exported as `OFFLOAD_ROOT`
+- `sandbox_init_cmd`: Optional command to run during image build, after cwd/copy-dirs are applied (e.g. `"uv sync --all-packages"`)
 - `retry_count`: Number of retries for failed tests (0 = no retries, 1 = catches transient failures)
 
 ### Step 5: Add JUnit ID Normalization (pytest only)
@@ -194,7 +173,7 @@ By default, pytest's JUnit XML output uses a `classname` + `name` format that ca
 There are two approaches. **Try Approach A first** (preferred). If it fails (e.g., due to pytest version incompatibility or internal API changes), fall back to **Approach B**.
 
 1. Identify the root `conftest.py` for the test paths configured in `offload.toml` (e.g., `tests/conftest.py`)
-2. If a `conftest.py` already exists at that location, check whether it already contains `_set_junit_test_id`, `pytest_runtest_setup` modifying JUnit XML, or an equivalent `record_xml_attribute("name", ...)` override. If so, **stop and show the user the existing hook/fixture**. Explain that offload needs the JUnit `name` attribute to match collected test IDs, and ask if they want to replace it with offload's version. If they approve, replace it. If they decline, switch the `[framework]` section in `offload.toml` to `type = "default"` using the fallback pattern from Step 4, wrapping their existing pytest invocation in custom `discover_command` and `run_command` so that offload controls the `--junitxml` flag directly without needing the conftest hook.
+2. If a `conftest.py` already exists at that location, check whether it already contains `_set_junit_test_id`, `pytest_runtest_setup` modifying JUnit XML, or an equivalent `record_xml_attribute("name", ...)` override. If so, **stop and show the user the existing hook/fixture**. Explain that offload needs the JUnit `name` attribute to match collected test IDs, and ask if they want to replace it with offload's version. If they approve, replace it. If they decline, switch the `[framework]` section in `offload.toml` to `type = "default"` using the `type = "default"` framework pattern from Step 4, wrapping their existing pytest invocation in custom `discover_command` and `run_command` so that offload controls the `--junitxml` flag directly without needing the conftest hook.
 3. If no `conftest.py` exists, create one. If one exists, append to it.
 
 Offload's parser already handles `name` values containing `::` by using them verbatim.
