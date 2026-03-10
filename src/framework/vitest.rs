@@ -203,6 +203,28 @@ impl TestFramework for VitestFramework {
 
         cmd
     }
+
+    fn clean_junit(&self, xml: &str) -> String {
+        use crate::report::{parse_all_testsuites_xml, write_testsuites_xml_from_suites};
+
+        let mut testsuites = parse_all_testsuites_xml(xml);
+        if testsuites.is_empty() {
+            return xml.to_string();
+        }
+
+        for suite in &mut testsuites {
+            suite.testcases.retain(|tc| !tc.skipped);
+            suite.tests = suite.testcases.len() as i32;
+        }
+        // Remove empty suites
+        testsuites.retain(|s| !s.testcases.is_empty());
+
+        if testsuites.is_empty() {
+            return xml.to_string();
+        }
+
+        write_testsuites_xml_from_suites(&testsuites)
+    }
 }
 
 #[cfg(test)]
@@ -268,6 +290,76 @@ mod tests {
                 .contains(&"--outputFile=/tmp/junit.xml".to_string())
         );
         assert!(cmd.args.contains(&"--no-coverage".to_string()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_clean_junit_strips_skipped() -> Result<(), Box<dyn std::error::Error>> {
+        let config = VitestFrameworkConfig::default();
+        let fw = VitestFramework::new(config)?;
+
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="2" failures="0" errors="0" time="0.001">
+    <testsuite name="tests/failing.test.ts" tests="2" failures="0" errors="0" skipped="1" time="0.001">
+        <testcase classname="tests/failing.test.ts" name="intentional failures &gt; this test passes" time="0.001">
+        </testcase>
+        <testcase classname="tests/failing.test.ts" name="intentional failures &gt; this test fails" time="0">
+            <skipped/>
+        </testcase>
+    </testsuite>
+</testsuites>"#;
+
+        let cleaned = fw.clean_junit(xml);
+
+        // The skipped testcase should be removed
+        assert!(
+            cleaned.contains("this test passes"),
+            "passing test should remain"
+        );
+        assert!(
+            !cleaned.contains("this test fails"),
+            "skipped test should be removed"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_clean_junit_passthrough_no_skipped() -> Result<(), Box<dyn std::error::Error>> {
+        let config = VitestFrameworkConfig::default();
+        let fw = VitestFramework::new(config)?;
+
+        let xml = r#"<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="1" failures="0" errors="0" time="0.001">
+    <testsuite name="tests/math.test.ts" tests="1" failures="0" errors="0" skipped="0" time="0.001">
+        <testcase classname="tests/math.test.ts" name="math &gt; add" time="0.001">
+        </testcase>
+    </testsuite>
+</testsuites>"#;
+
+        let cleaned = fw.clean_junit(xml);
+
+        // No skipped tests, so the content should still contain the test
+        assert!(
+            cleaned.contains("math > add") || cleaned.contains("math &gt; add"),
+            "test should remain in output"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_clean_junit_returns_input_on_empty_parse() -> Result<(), Box<dyn std::error::Error>> {
+        let config = VitestFrameworkConfig::default();
+        let fw = VitestFramework::new(config)?;
+
+        let xml = "not valid xml at all";
+        let cleaned = fw.clean_junit(xml);
+        assert_eq!(
+            cleaned, xml,
+            "should return input unchanged on parse failure"
+        );
 
         Ok(())
     }

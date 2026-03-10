@@ -416,11 +416,14 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
                     ));
                 }
 
+                // Clean framework-specific artifacts before adding to report
+                let cleaned_xml = self.framework.clean_junit(&xml_content);
+
                 if let Some(report) = &self.junit_report {
                     match report.lock() {
                         Ok(mut report) => {
                             let before = report.total_count();
-                            report.add_junit_xml(&xml_content);
+                            report.add_junit_xml(&cleaned_xml);
                             let after = report.total_count();
                             info!(
                                 "[BATCH ADDED] Sandbox {} added to master report: before={}, after={}, delta={}",
@@ -440,7 +443,7 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
                 } else {
                     warn!("[BATCH WARN] No junit report configured for {}", sandbox_id);
                 }
-                has_failures_in_xml(&xml_content)
+                has_failures_in_xml(&cleaned_xml)
             }
             None => {
                 return Err(anyhow::anyhow!(
