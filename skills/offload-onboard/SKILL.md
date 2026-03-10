@@ -5,9 +5,7 @@ description: "Onboard a repository to use Offload for parallel test execution on
 
 # Onboard Repository to Offload
 
-This skill walks through onboarding the current repository to use **Offload** — a parallel test runner that executes tests across Modal cloud sandboxes.
-
-**Install Offload**: `cargo install offload@0.5.0`
+This skill walks through onboarding the current repository to use **Offload** — a parallel test runner that executes tests across Modal cloud sandboxes. Offload is installed as part of the procedure below (`cargo install offload@0.5.0`).
 
 ## Procedure
 
@@ -28,9 +26,10 @@ Investigate how the repository runs its tests:
 
 Ask the user to confirm your detection if anything is ambiguous.
 
-Before proceeding, verify the following are installed:
-- `uv` (required to run the bundled Modal sandbox script)
-- `modal` CLI — run `modal token new` if not yet authenticated
+Before proceeding, verify the following are installed and authenticated. **Do not continue until all prerequisites are confirmed.**
+
+- `uv` (**required** — Offload uses `uv` to run the Modal sandbox script regardless of project language or package manager)
+- `modal` CLI — must be installed (`pip install modal`) **and** authenticated. Run `modal profile list` to check. If not authenticated, tell the user to run `modal token new` (opens a browser, writes credentials to `~/.modal.toml`). **Wait for the user to confirm authentication before proceeding.**
 - For pytest projects: the configured Python runner (`uv`, `poetry`, or `python`) and pytest must be available locally for test discovery
 - For cargo projects: `cargo-nextest` must be installed (`cargo install cargo-nextest`)
 
@@ -77,33 +76,9 @@ Key principles:
 - Do NOT `COPY . .` — Offload overlays source via `--copy-dir` at image build time
 - Keep it minimal — dependencies are installed at runtime inside the sandbox
 
-### Step 3: Create .dockerignore
+### Step 3: Create offload.toml
 
-Create a `.dockerignore` to prevent local artifacts from being copied into sandboxes:
-
-```
-.venv
-.git
-.github
-__pycache__
-*.egg-info
-.offload
-.offload-image-cache
-test-results
-build
-dist
-target
-node_modules
-```
-
-**CRITICAL**: `.venv` must be excluded. If a local virtual environment (e.g. macOS binaries) gets copied into a Linux sandbox, tests will fail with "Exec format error". This is the most common onboarding failure.
-**NOTE**: Sometimes tests depend on the git repository, and we will need to include `.git`. Attempt to begin by removing it, and only include it if necessary.
-
-### Step 4: Create offload.toml
-
-Create `offload.toml` at the project root. Start with these defaults:
-
-There are two provider patterns. Choose the one that fits your project.
+Create `offload.toml` at the project root. There are two provider patterns — choose the one that fits your project.
 
 **Pattern A — Modal provider (recommended for most cases):**
 
@@ -208,7 +183,7 @@ Configuration reference:
 - `sandbox_project_root`: The path where project files live inside the sandbox, exported as `OFFLOAD_ROOT`
 - `retry_count`: Number of retries for failed tests (0 = no retries, 1 = catches transient failures)
 
-### Step 5: Add JUnit ID Normalization (pytest only)
+### Step 4: Add JUnit ID Normalization (pytest only)
 
 **Skip this step if the framework is not `pytest`.**
 
@@ -217,7 +192,7 @@ By default, pytest's JUnit XML output uses a `classname` + `name` format that ca
 There are two approaches. **Try Approach A first** (preferred). If it fails (e.g., due to pytest version incompatibility or internal API changes), fall back to **Approach B**.
 
 1. Identify the root `conftest.py` for the test paths configured in `offload.toml` (e.g., `tests/conftest.py`)
-2. If a `conftest.py` already exists at that location, check whether it already contains `_set_junit_test_id`, `pytest_runtest_setup` modifying JUnit XML, or an equivalent `record_xml_attribute("name", ...)` override. If so, **stop and show the user the existing hook/fixture**. Explain that offload needs the JUnit `name` attribute to match collected test IDs, and ask if they want to replace it with offload's version. If they approve, replace it. If they decline, switch the `[framework]` section in `offload.toml` to `type = "default"` using the fallback pattern from Step 4, wrapping their existing pytest invocation in custom `discover_command` and `run_command` so that offload controls the `--junitxml` flag directly without needing the conftest hook.
+2. If a `conftest.py` already exists at that location, check whether it already contains `_set_junit_test_id`, `pytest_runtest_setup` modifying JUnit XML, or an equivalent `record_xml_attribute("name", ...)` override. If so, **stop and show the user the existing hook/fixture**. Explain that offload needs the JUnit `name` attribute to match collected test IDs, and ask if they want to replace it with offload's version. If they approve, replace it. If they decline, switch the `[framework]` section in `offload.toml` to `type = "default"` using the fallback pattern from Step 3, wrapping their existing pytest invocation in custom `discover_command` and `run_command` so that offload controls the `--junitxml` flag directly without needing the conftest hook.
 3. If no `conftest.py` exists, create one. If one exists, append to it.
 
 Offload's parser already handles `name` values containing `::` by using them verbatim.
@@ -284,7 +259,7 @@ def _set_junit_test_id(request: pytest.FixtureRequest, record_xml_attribute) -> 
 
 Ensure imports (`os`, `pytest`) are not duplicated if the file already has them.
 
-### Step 6: Create Local Invocation Script
+### Step 5: Create Local Invocation Script
 
 Create `scripts/offload-tests.sh`:
 
@@ -307,11 +282,13 @@ exec offload run --copy-dir ".:/app" "$@"
 
 Make it executable with `chmod +x scripts/offload-tests.sh`.
 
-The `--copy-dir ".:/app"` flag tells Offload to copy the current directory into `/app` in the sandbox. This is specified at invocation time (not in offload.toml) because it's a runtime concern.
+The `--copy-dir` flag tells Offload to copy the local directory into the sandbox at the given path. The target path must match `sandbox_project_root` in `offload.toml` (e.g. `".:/app"` when `sandbox_project_root = "/app"`). This is specified at invocation time, not in `offload.toml`, because it's a runtime concern.
+
+**Use this script (or the equivalent invocation) for all subsequent steps that run Offload.**
 
 If the project uses a Makefile, justfile, or Taskfile instead of scripts/, add the invocation there instead to be consistent with existing practice.
 
-### Step 7: Update .gitignore
+### Step 6: Update .gitignore
 
 Append Offload artifacts to `.gitignore`:
 
@@ -320,24 +297,9 @@ Append Offload artifacts to `.gitignore`:
 test-results/
 ```
 
-NOTE: That we WANT to check in .offload-image-cache to git.
+NOTE: `.offload-image-cache` should be checked in to git — it tracks the base image ID and speeds up subsequent runs.
 
-### Step 8: Authenticate with Modal
-
-Check if Modal credentials are configured:
-
-```bash
-modal profile list
-```
-
-If not authenticated, tell the user:
-1. Install the Modal CLI: `pip install modal`
-2. Create an account and authenticate: `modal token new`
-3. This opens a browser for authentication and writes credentials to `~/.modal.toml`
-
-Wait for the user to confirm they've authenticated before proceeding.
-
-### Step 9: Run Offload Locally and Verify
+### Step 7: Run Offload Locally and Verify
 
 Install offload if not already present:
 
@@ -345,27 +307,27 @@ Install offload if not already present:
 cargo install offload@0.5.0
 ```
 
-Run the tests:
+Run the tests using the invocation script from Step 5:
 
 ```bash
-offload run --copy-dir ".:/app"
+./scripts/offload-tests.sh
 ```
 
 **All tests must pass.** If they don't:
 
-1. **"Exec format error"**: `.venv` or local binaries leaked into the sandbox. Ensure `.dockerignore` excludes `.venv`.
+1. **"Exec format error"**: `.venv` or local binaries leaked into the sandbox. See the Troubleshooting section on creating a `.dockerignore`.
 2. **"No such file or directory"**: The sandbox is missing a dependency. Check the Dockerfile has the right runtime and package manager.
 3. **"Token validation failed"**: Modal credentials are expired. Run `modal token new` to refresh.
 4. **Tests discovered but "Not Run"**: The test command is failing silently inside the sandbox. Debug by checking if `uv`/`python`/`cargo` is available in the Dockerfile.
 
 Do not proceed to optimization until all tests pass.
 
-### Step 10: Optimize Parameters via Gradient Descent
+### Step 8: Optimize Parallelism
 
 Run a simple linear search over `max_parallel` to minimize total runtime:
 
 1. Test `max_parallel` values: 1, 2, 3, 4, 6, 8 (keeping other params fixed)
-2. For each value, edit `offload.toml`, run `offload run --copy-dir ".:/app"`, and record the duration
+2. For each value, edit `offload.toml`, run `./scripts/offload-tests.sh`, and record the duration
 3. Pick the value with the lowest duration
 4. Optionally test `retry_count = 0` vs `retry_count = 1` at the optimal parallelism
 
@@ -373,11 +335,11 @@ The optimal `max_parallel` depends on the number of test files and per-test dura
 
 Report the results as a table to the user and set the optimal values in `offload.toml`.
 
-### Step 11: Update Agent/Project Instructions (Optional)
+### Step 9: Update Agent/Project Instructions (Optional)
 
 **First, ask the user:** "Would you like to configure Offload as the default test runner for AI agents working in this repository? This requires agents to have access to Modal API credentials."
 
-**If the user declines**, skip this step entirely and proceed to Step 12.
+**If the user declines**, skip this step entirely and proceed to Step 10.
 
 **If the user agrees**, ensure that future AI agents working in this repository know to use Offload for running tests:
 
@@ -403,22 +365,16 @@ Report the results as a table to the user and set the optimal values in `offload
    ./scripts/offload-tests.sh
    ```
 
-   Or directly:
-
-   ```bash
-   offload run --copy-dir ".:/app"
-   ```
-
    Prerequisites: Offload (`cargo install offload@0.5.0`) and Modal credentials (`modal token new`).
    ````
 
-   Adapt the exact command to match what was configured in earlier steps (the script path, `--copy-dir` mapping, etc.).
+   Adapt the exact command to match what was configured in earlier steps (the script path, etc.).
 
 6. Preserve the existing tone and formatting of the file. If it uses a digraph, bullet lists, or a specific heading style, match that style. Do not restructure or reformat existing content.
 
-### Step 12: Set Up CI Job (optional)
+### Step 10: Set Up CI Job (optional)
 
-Ask the user if they want to set up a CI job to run Offload tests automatically on push/PR. If they decline, skip Steps 12 and 13.
+Ask the user if they want to set up a CI job to run Offload tests automatically on push/PR. If they decline, skip Steps 10 and 11.
 
 If they want CI, detect the CI system from the repository:
 - `.github/workflows/` → GitHub Actions
@@ -486,16 +442,16 @@ jobs:
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-        run: offload run --copy-dir ".:/app"
+        run: offload run --copy-dir ".:/app"  # adjust path to match sandbox_project_root
 ```
 
 **IMPORTANT**: The CI runner needs the project's language toolchain and dependencies installed because Offload discovers tests **locally** (e.g. `uv -m pytest --collect-only`), then sends them to Modal for execution. Without local discovery dependencies, Offload will fail with "No such file or directory".
 
 `continue-on-error: true` makes the job advisory — it always reports success to branch protection, but step-level pass/fail is visible in the Actions UI.
 
-For other CI systems, adapt the same pattern: install Offload + Modal CLI, set Modal secrets as env vars, run `offload run --copy-dir ".:/app"`.
+For other CI systems, adapt the same pattern: install Offload + Modal CLI, set Modal secrets as env vars, run `offload run`.
 
-### Step 13: Configure CI Secrets
+### Step 11: Configure CI Secrets
 
 Tell the user they need to add two repository secrets:
 - `MODAL_TOKEN_ID`: Their Modal API token ID
@@ -519,20 +475,44 @@ Wait for the run to succeed. If it fails, diagnose and fix the issue, then trigg
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| "Exec format error (os error 8)" | Local `.venv` (macOS/Windows binaries) copied into Linux sandbox | Add `.venv` to `.dockerignore` |
+| "Exec format error (os error 8)" | Local `.venv` (macOS/Windows binaries) copied into Linux sandbox | Create a `.dockerignore` (see below) |
 | "Token validation failed" | Modal credentials expired | `modal token new` |
 | All tests "Not Run" / junit.xml missing | Test command failing inside sandbox | Check Dockerfile has correct runtime; debug with `modal sandbox create` |
 | "No such file or directory" on CI | Missing local discovery dependencies | Add language toolchain + dep install steps before Offload |
 | Slow sandbox creation | Docker image not cached | Run once to warm cache; `.offload-image-cache` tracks the base image ID |
 | Stale sandbox image | `.offload-image-cache` points to an outdated image | Delete `.offload-image-cache` to force a fresh image build on next run |
 | High parallelism slower than low | Sandbox creation overhead dominates | Reduce `max_parallel`; optimal is usually 2-6 for small test suites |
+| Tests fail with unexpected errors in sandbox | Local artifacts (caches, build dirs) interfere with sandbox environment | Create a `.dockerignore` (see below) |
+
+### Creating a .dockerignore
+
+If tests fail due to local artifacts leaking into the sandbox (e.g. "Exec format error" from a macOS `.venv` copied into a Linux sandbox, or stale `__pycache__`/build directories causing conflicts), create a `.dockerignore` at the project root to exclude them:
+
+```
+.venv
+.git
+.github
+__pycache__
+*.egg-info
+.offload
+.offload-image-cache  # excluded from sandbox, but should be checked in to git
+test-results
+build
+dist
+target
+node_modules
+```
+
+**CRITICAL**: `.venv` is the most common culprit. If a local virtual environment (e.g. macOS binaries) gets copied into a Linux sandbox, tests will fail with "Exec format error". This is the most common onboarding failure.
+
+**NOTE**: Sometimes tests depend on the git repository. If tests fail because `.git` is missing, remove `.git` from the `.dockerignore`.
 
 ## Summary of Files Created/Modified
 
 | File | Purpose |
 |------|---------|
 | `.devcontainer/Dockerfile` (or existing) | Base image for Modal sandboxes |
-| `.dockerignore` | Exclude local artifacts from sandbox |
+| `.dockerignore` | (If needed) Exclude local artifacts from sandbox — see Troubleshooting |
 | `offload.toml` | Offload configuration |
 | `scripts/offload-tests.sh` (or Makefile target) | Local invocation convenience |
 | `.gitignore` | Exclude Offload artifacts |
