@@ -320,6 +320,8 @@ Append Offload artifacts to `.gitignore`:
 test-results/
 ```
 
+NOTE: That we WANT to check in .offload-image-cache to git.
+
 ### Step 8: Authenticate with Modal
 
 Check if Modal credentials are configured:
