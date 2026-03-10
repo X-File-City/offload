@@ -12,11 +12,11 @@ use tracing_subscriber::FmtSubscriber;
 use offload::config::{
     self, CargoFrameworkConfig, Config, DefaultFrameworkConfig, DefaultProviderConfig,
     FrameworkConfig, GroupConfig, LocalProviderConfig, OffloadConfig, ProviderConfig,
-    PytestFrameworkConfig, ReportConfig, SandboxConfig,
+    PytestFrameworkConfig, ReportConfig, SandboxConfig, VitestFrameworkConfig,
 };
 use offload::framework::{
     TestFramework, TestRecord, cargo::CargoFramework, default::DefaultFramework,
-    pytest::PytestFramework,
+    pytest::PytestFramework, vitest::VitestFramework,
 };
 use offload::orchestrator::{Orchestrator, SandboxPool};
 use offload::provider::{default::DefaultProvider, local::LocalProvider, modal::ModalProvider};
@@ -90,7 +90,7 @@ enum Commands {
         #[arg(short, long, default_value = "local")]
         provider: String,
 
-        /// Test framework (pytest, cargo, default)
+        /// Test framework (pytest, cargo, vitest, default)
         #[arg(short, long, default_value = "pytest")]
         framework: String,
     },
@@ -173,6 +173,7 @@ fn framework_type_name(framework: &FrameworkConfig) -> &'static str {
         FrameworkConfig::Pytest(_) => "pytest",
         FrameworkConfig::Cargo(_) => "cargo",
         FrameworkConfig::Default(_) => "default",
+        FrameworkConfig::Vitest(_) => "vitest",
     }
 }
 
@@ -197,6 +198,11 @@ async fn discover_all_tests(
             }
             FrameworkConfig::Default(cfg) => {
                 DefaultFramework::new(cfg.clone())
+                    .discover(&[], &group_cfg.filters, group_name)
+                    .await?
+            }
+            FrameworkConfig::Vitest(cfg) => {
+                VitestFramework::new(cfg.clone())?
                     .discover(&[], &group_cfg.filters, group_name)
                     .await?
             }
@@ -273,6 +279,18 @@ async fn dispatch_framework<P: offload::provider::SandboxProvider>(
                 all_tests,
                 provider,
                 DefaultFramework::new(f_cfg.clone()),
+                copy_dirs,
+                verbose,
+                tracer,
+            )
+            .await
+        }
+        FrameworkConfig::Vitest(f_cfg) => {
+            run_all_tests(
+                config,
+                all_tests,
+                provider,
+                VitestFramework::new(f_cfg.clone())?,
                 copy_dirs,
                 verbose,
                 tracer,
@@ -670,9 +688,14 @@ fn init_config(provider: &str, framework: &str) -> Result<()> {
             result_file: None,
             working_dir: None,
         }),
+        "vitest" => FrameworkConfig::Vitest(VitestFrameworkConfig {
+            command: "npx vitest".into(),
+            test_id_format: "{classname} > {name}".into(),
+            ..Default::default()
+        }),
         _ => {
             eprintln!(
-                "Unknown framework: {}. Use: pytest, cargo, default",
+                "Unknown framework: {}. Use: pytest, cargo, vitest, default",
                 framework
             );
             std::process::exit(1);

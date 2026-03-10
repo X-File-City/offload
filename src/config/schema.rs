@@ -319,6 +319,9 @@ pub enum FrameworkConfig {
 
     /// Discover and run tests with custom shell commands.
     Default(DefaultFrameworkConfig),
+
+    /// Discover and run JavaScript/TypeScript tests with vitest.
+    Vitest(VitestFrameworkConfig),
 }
 
 impl FrameworkConfig {
@@ -331,6 +334,7 @@ impl FrameworkConfig {
             FrameworkConfig::Pytest(config) => &config.test_id_format,
             FrameworkConfig::Cargo(config) => &config.test_id_format,
             FrameworkConfig::Default(config) => &config.test_id_format,
+            FrameworkConfig::Vitest(config) => &config.test_id_format,
         }
     }
 }
@@ -392,6 +396,44 @@ fn default_pytest_test_id_format() -> String {
 
 fn default_cargo_test_id_format() -> String {
     "{classname} {name}".to_string()
+}
+
+fn default_vitest_command() -> String {
+    "npx vitest".to_string()
+}
+
+fn default_vitest_test_id_format() -> String {
+    "{classname} > {name}".to_string()
+}
+
+/// Configuration for vitest test framework.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct VitestFrameworkConfig {
+    /// Full command prefix for invoking vitest (e.g. `"npx vitest"`).
+    ///
+    /// Default: `"npx vitest"`
+    #[serde(default = "default_vitest_command")]
+    pub command: String,
+
+    /// Extra arguments appended only during test execution (not discovery).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_args: Option<String>,
+
+    /// Format string for constructing test IDs from JUnit XML attributes.
+    ///
+    /// Default: `"{classname} > {name}"`
+    #[serde(default = "default_vitest_test_id_format")]
+    pub test_id_format: String,
+}
+
+impl Default for VitestFrameworkConfig {
+    fn default() -> Self {
+        Self {
+            command: default_vitest_command(),
+            run_args: None,
+            test_id_format: default_vitest_test_id_format(),
+        }
+    }
 }
 
 /// Configuration for Rust/Cargo test framework.
@@ -852,6 +894,73 @@ mod tests {
             return Err("Expected Pytest framework".into());
         }
 
+        Ok(())
+    }
+
+    fn vitest_local_config() -> Config {
+        Config {
+            offload: OffloadConfig {
+                max_parallel: 10,
+                test_timeout_secs: 900,
+                working_dir: None,
+                stream_output: false,
+                sandbox_project_root: "/app".to_string(),
+                sandbox_init_cmd: None,
+            },
+            provider: ProviderConfig::Local(LocalProviderConfig {
+                working_dir: Some(PathBuf::from(".")),
+                ..Default::default()
+            }),
+            framework: FrameworkConfig::Vitest(VitestFrameworkConfig {
+                command: "npx vitest".into(),
+                test_id_format: "{classname} > {name}".into(),
+                ..Default::default()
+            }),
+            groups: HashMap::from([(
+                "default".to_string(),
+                GroupConfig {
+                    retry_count: 0,
+                    filters: String::new(),
+                },
+            )]),
+            report: ReportConfig::default(),
+        }
+    }
+
+    #[test]
+    fn test_init_config_vitest_deserializes() -> Result<(), Box<dyn std::error::Error>> {
+        let config = vitest_local_config();
+        let toml_str = toml::to_string_pretty(&config)?;
+        let deserialized: Config = toml::from_str(&toml_str)?;
+        assert_eq!(
+            deserialized.framework.test_id_format(),
+            "{classname} > {name}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_vitest_default_command() -> Result<(), Box<dyn std::error::Error>> {
+        let toml_str = r#"
+            [offload]
+            sandbox_project_root = "/app"
+
+            [provider]
+            type = "local"
+
+            [framework]
+            type = "vitest"
+
+            [groups.all]
+            retry_count = 0
+        "#;
+        let config: Config = toml::from_str(toml_str)?;
+        if let FrameworkConfig::Vitest(ref vitest) = config.framework {
+            assert_eq!(vitest.command, "npx vitest");
+            assert!(vitest.run_args.is_none());
+        } else {
+            return Err("Expected Vitest framework".into());
+        }
         Ok(())
     }
 }

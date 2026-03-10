@@ -2,6 +2,7 @@
 pub mod cargo;
 pub mod default;
 pub mod pytest;
+pub mod vitest;
 
 use std::path::PathBuf;
 
