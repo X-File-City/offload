@@ -208,12 +208,11 @@ impl TestFramework for CargoFramework {
         let filter_expr: String = tests
             .iter()
             .map(|t| {
-                let id = t.id();
                 // Split into binary and test path; fall back to just test filter if no space
-                if let Some((binary, test_path)) = id.split_once(' ') {
+                if let Some((binary, test_path)) = t.id().split_once(' ') {
                     format!("(binary_id(={}) & test(={}))", binary, test_path)
                 } else {
-                    format!("test(={})", id)
+                    format!("test(={})", t.id())
                 }
             })
             .collect::<Vec<_>>()

@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::config::Config;
-use crate::framework::{TestFramework, TestInstance, TestRecord, TestResult};
+use crate::framework::{TestFramework, TestInstance, TestRecord};
 use crate::provider::Sandbox;
 use crate::report::{MasterJunitReport, load_test_durations, print_summary};
 
@@ -54,9 +54,6 @@ pub struct RunResult {
     /// Number of tests that failed (assertions or errors).
     pub failed: usize,
 
-    /// Number of tests that were skipped.
-    pub skipped: usize,
-
     /// Number of tests that were flaky (passed on retry).
     ///
     /// A flaky test is one that failed initially but passed after retrying.
@@ -69,9 +66,6 @@ pub struct RunResult {
 
     /// Wall-clock duration of the entire test run.
     pub duration: Duration,
-
-    /// Individual test results for all executed tests.
-    pub results: Vec<TestResult>,
 }
 
 impl RunResult {
@@ -202,20 +196,14 @@ where
                 total_tests: 0,
                 passed: 0,
                 failed: 0,
-                skipped: 0,
                 flaky: 0,
                 not_run: 0,
                 duration: start.elapsed(),
-                results: Vec::new(),
             });
         }
 
         // Set up progress bar
-        let total_instances: usize = tests
-            .iter()
-            .filter(|t| !t.skipped)
-            .map(|t| t.retry_count + 1)
-            .sum();
+        let total_instances: usize = tests.iter().map(|t| t.retry_count + 1).sum();
         let progress = indicatif::ProgressBar::new(total_instances as u64);
         if let Ok(style) = indicatif::ProgressStyle::default_bar().template(
             "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
@@ -224,18 +212,15 @@ where
         }
         progress.enable_steady_tick(std::time::Duration::from_millis(100));
 
-        // Filter out skipped tests and create Test handles
+        // Create test instances
         // For tests with retry_count > 0, create multiple instances to run in parallel
         let tests_to_run: Vec<TestInstance<'_>> = tests
             .iter()
-            .filter(|t| !t.skipped)
             .flat_map(|t| {
                 let count = t.retry_count + 1; // 1 original + retry_count retries
                 (0..count).map(move |_| t.test())
             })
             .collect();
-
-        let skipped_count = tests.len() - tests.iter().filter(|t| !t.skipped).count();
 
         // Schedule tests using LPT (Longest Processing Time First) if we have durations,
         // otherwise fall back to round-robin with a warning.
@@ -290,7 +275,7 @@ where
         );
 
         // Shared JUnit report for accumulating results and early stopping
-        let total_tests_to_run = tests.iter().filter(|t| !t.skipped).count();
+        let total_tests_to_run = tests.len();
         let junit_report = Arc::new(std::sync::Mutex::new(MasterJunitReport::new(
             total_tests_to_run,
         )));
@@ -388,7 +373,7 @@ where
         };
 
         // Check for missing tests
-        let expected_unique_tests = tests.iter().filter(|t| !t.skipped).count();
+        let expected_unique_tests = tests.len();
         if total_in_report < expected_unique_tests {
             error!(
                 "[ORCHESTRATOR MISMATCH] Expected {} unique tests but only {} in report! {} TESTS MISSING!",
@@ -418,7 +403,7 @@ where
         }
 
         // Use JUnit report as source of truth for all counts
-        let total_discovered = tests.iter().filter(|t| !t.skipped).count();
+        let total_discovered = tests.len();
         let total_in_junit = if let Ok(report) = junit_report.lock() {
             report.total_count()
         } else {
@@ -432,11 +417,9 @@ where
             total_tests: total_in_junit,
             passed: passed + flaky_count, // Flaky tests count as passed
             failed,
-            skipped: skipped_count,
             flaky: flaky_count,
             not_run,
             duration: start.elapsed(),
-            results: Vec::new(), // Results are in JUnit XML now
         };
         drop(_agg_span);
 

@@ -23,7 +23,6 @@ fn write_config(config_path: &Path, output_dir: &Path) -> anyhow::Result<()> {
             max_parallel: 1,
             test_timeout_secs: 300,
             working_dir: None,
-            stream_output: false,
             sandbox_project_root: ".".to_string(),
             sandbox_init_cmd: None,
         },

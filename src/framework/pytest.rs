@@ -189,6 +189,7 @@ impl TestFramework for PytestFramework {
 mod tests {
     use super::*;
     use crate::config::PytestFrameworkConfig;
+    use crate::framework::TestInstance;
 
     #[test]
     fn test_command_prefix_with_command() {

@@ -62,18 +62,6 @@ pub struct TestRecord {
     /// Source file where the test is defined.
     pub file: Option<PathBuf>,
 
-    /// Line number where the test is defined.
-    pub line: Option<u32>,
-
-    /// Tags, markers, or labels associated with the test.
-    pub markers: Vec<String>,
-
-    /// Whether this test is known to be flaky.
-    pub flaky: bool,
-
-    /// Whether this test should be skipped.
-    pub skipped: bool,
-
     /// Number of times to retry this test if it fails.
     /// Set per-test to allow group-specific retry counts.
     pub retry_count: usize,
@@ -95,10 +83,6 @@ impl TestRecord {
             id,
             name,
             file: None,
-            line: None,
-            markers: Vec::new(),
-            flaky: false,
-            skipped: false,
             retry_count: 0,
             group: group.into(),
         }
@@ -123,26 +107,16 @@ impl TestRecord {
 }
 
 /// A lightweight handle to a test for execution in a sandbox.
-///
-/// `TestInstance` holds a reference to a [`TestRecord`] and provides read access
-/// to test metadata.
-///
-/// # Lifetime
-///
-/// The lifetime `'a` ties this `TestInstance` to its associated `TestRecord`.
 #[derive(Debug, Clone, Copy)]
 pub struct TestInstance<'a> {
-    /// Reference to the test record containing all data.
     record: &'a TestRecord,
 }
 
 impl<'a> TestInstance<'a> {
-    /// Creates a new test handle for the given record.
     pub fn new(record: &'a TestRecord) -> Self {
         Self { record }
     }
 
-    /// Returns the unique identifier for this test.
     pub fn id(&self) -> &str {
         &self.record.id
     }
@@ -296,4 +270,35 @@ pub trait TestFramework: Send + Sync {
     ///
     /// * `tests` - Tests to execute (borrowed from TestRecords)
     fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_ids_to_records(ids: Vec<String>) -> Vec<TestRecord> {
+        ids.into_iter()
+            .map(|id| {
+                let file = id.split("::").next().map(PathBuf::from);
+                let mut record = TestRecord::new(id, "test-group");
+                if let Some(f) = file {
+                    record = record.with_file(f);
+                }
+                record
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_parse_test_id() {
+        let records = test_ids_to_records(vec![
+            "tests/test_math.py::test_addition".to_string(),
+            "tests/test_math.py::TestClass::test_method".to_string(),
+        ]);
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].name, "test_addition");
+        assert_eq!(records[0].file, Some(PathBuf::from("tests/test_math.py")));
+        assert_eq!(records[1].name, "test_method");
+    }
 }
