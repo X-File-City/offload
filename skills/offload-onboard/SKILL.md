@@ -45,7 +45,7 @@ Offload's Modal provider needs a Dockerfile to build sandbox images. Look for an
 
 **For Python projects:**
 ```dockerfile
-FROM python:3.XX-slim
+FROM python:<version>-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
@@ -61,7 +61,7 @@ WORKDIR /app
 
 **For Rust projects:**
 ```dockerfile
-FROM rust:1.XX-slim
+FROM rust:<version>-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends git pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -80,7 +80,7 @@ Key principles:
 
 ### Step 4: Create offload.toml
 
-Create `offload.toml` at the project root using the Modal provider:
+Create `offload.toml` at the project root using the Modal provider. In the templates below, values in `<angle-brackets>` are placeholders you must substitute with project-specific values.
 
 ```toml
 [offload]
@@ -90,14 +90,14 @@ sandbox_project_root = "/app"
 
 [provider]
 type = "modal"
-dockerfile = "{path-to-dockerfile}"
+dockerfile = "<path-to-dockerfile>"
 include_cwd = true
 
 [framework]
 type = "pytest"
-paths = ["{test-paths}"]
-python = "{runner}"              # e.g. "python", "uv"
-extra_args = ["{extra-args}"]    # e.g. ["run", "--with=pytest"] for uv
+paths = ["<test-paths>"]
+python = "<runner>"              # e.g. "python", "uv"
+extra_args = ["<extra-args>"]    # e.g. ["run", "--with=pytest"] for uv
 
 [groups.all]
 retry_count = 0
@@ -143,7 +143,7 @@ Example — pytest in a monorepo with xdist conflict (still using the Modal prov
 ```toml
 [provider]
 type = "modal"
-dockerfile = "{path-to-dockerfile}"
+dockerfile = "<path-to-dockerfile>"
 include_cwd = true
 
 [framework]
@@ -387,7 +387,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.XX"
+          python-version: "<version>"
 
       # Include language-specific setup needed for LOCAL test discovery
       # offload discovers tests locally, then executes them remotely
