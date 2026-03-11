@@ -17,42 +17,41 @@ use crate::provider::Command;
 ///
 /// See [`PytestFrameworkConfig`] for available options including:
 /// - `paths`: Directories to search
-/// - `markers`: Filter expression (e.g., `"not slow"`)
-/// - `python`: Python interpreter path
-/// - `extra_args`: Additional pytest arguments
+/// - `command`: Full pytest invocation command
+/// - `run_args`: Extra arguments for execution only
 pub struct PytestFramework {
     config: PytestFrameworkConfig,
+    /// The program to invoke (first token of `command`).
+    program: String,
+    /// Additional arguments parsed from `command` (tokens after the program).
+    prefix_args: Vec<String>,
 }
 
 impl PytestFramework {
-    /// Creates a new pytest framework with the given configuration.
-    pub fn new(config: PytestFrameworkConfig) -> Self {
-        Self { config }
-    }
+    /// Creates a new pytest framework, validating the command at construction time.
+    pub fn new(config: PytestFrameworkConfig) -> FrameworkResult<Self> {
+        let mut parts = shell_words::split(&config.command).map_err(|e| {
+            FrameworkError::DiscoveryFailed(format!(
+                "Failed to parse command '{}': {}",
+                config.command, e
+            ))
+        })?;
 
-    /// Returns (program, args) for the pytest invocation.
-    ///
-    /// When `command` is set, shell-splits it into program + args.
-    /// Otherwise falls back to legacy: `python` + `extra_args` + `["-m", "pytest"]`.
-    fn command_prefix(&self) -> (String, Vec<String>) {
-        if let Some(command) = &self.config.command {
-            match shell_words::split(command) {
-                Ok(mut parts) if !parts.is_empty() => {
-                    let program = parts.remove(0);
-                    return (program, parts);
-                }
-                _ => {
-                    tracing::warn!(
-                        "Failed to parse command '{}', falling back to legacy",
-                        command
-                    );
-                }
-            }
+        if parts.is_empty() {
+            return Err(FrameworkError::DiscoveryFailed(format!(
+                "Command '{}' produced no tokens after parsing",
+                config.command
+            )));
         }
-        let mut args: Vec<String> = self.config.extra_args.clone();
-        args.push("-m".to_string());
-        args.push("pytest".to_string());
-        (self.config.python.clone(), args)
+
+        let program = parts.remove(0);
+        let prefix_args = parts;
+
+        Ok(Self {
+            config,
+            program,
+            prefix_args,
+        })
     }
 
     /// Parse `pytest --collect-only -q` output to extract test records.
@@ -80,14 +79,13 @@ impl TestFramework for PytestFramework {
         group: &str,
     ) -> FrameworkResult<Vec<TestRecord>> {
         // Build the pytest --collect-only command
-        let (program, prefix_args) = self.command_prefix();
-        let mut cmd = tokio::process::Command::new(&program);
-        for arg in &prefix_args {
+        let mut cmd = tokio::process::Command::new(&self.program);
+        for arg in &self.prefix_args {
             cmd.arg(arg);
         }
         cmd.arg("--collect-only").arg("-q");
 
-        // Add filters if provided, otherwise fall back to markers config
+        // Add filters if provided
         if !filters.is_empty() {
             let args = shell_words::split(filters).map_err(|e| {
                 FrameworkError::DiscoveryFailed(format!(
@@ -98,8 +96,6 @@ impl TestFramework for PytestFramework {
             for arg in args {
                 cmd.arg(arg);
             }
-        } else if let Some(markers) = &self.config.markers {
-            cmd.arg("-m").arg(markers);
         }
 
         // Add paths to search
@@ -149,9 +145,8 @@ impl TestFramework for PytestFramework {
     }
 
     fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command {
-        let (program, prefix_args) = self.command_prefix();
-        let mut cmd = Command::new(&program);
-        for arg in &prefix_args {
+        let mut cmd = Command::new(&self.program);
+        for arg in &self.prefix_args {
             cmd = cmd.arg(arg);
         }
 
@@ -160,10 +155,8 @@ impl TestFramework for PytestFramework {
             .arg("--tb=short")
             .arg(format!("--junitxml={}", result_path));
 
-        // Append run_args (only effective when command is set, since run_args requires command)
-        if let Some(run_args) = &self.config.run_args
-            && self.config.command.is_some()
-        {
+        // Append run_args for test execution only (not discovery)
+        if let Some(run_args) = &self.config.run_args {
             match shell_words::split(run_args) {
                 Ok(args) => {
                     for arg in args {
@@ -192,38 +185,55 @@ mod tests {
     use crate::framework::TestInstance;
 
     #[test]
-    fn test_command_prefix_with_command() {
+    fn test_command_prefix_with_command() -> Result<(), Box<dyn std::error::Error>> {
         let config = PytestFrameworkConfig {
-            command: Some("uv run pytest".to_string()),
+            command: "uv run pytest".to_string(),
             ..Default::default()
         };
-        let fw = PytestFramework::new(config);
-        let (program, args) = fw.command_prefix();
-        assert_eq!(program, "uv");
-        assert_eq!(args, vec!["run", "pytest"]);
+        let fw = PytestFramework::new(config)?;
+        assert_eq!(fw.program, "uv");
+        assert_eq!(fw.prefix_args, vec!["run", "pytest"]);
+        Ok(())
     }
 
     #[test]
-    fn test_command_prefix_without_command() {
+    fn test_command_prefix_default() -> Result<(), Box<dyn std::error::Error>> {
         let config = PytestFrameworkConfig {
-            python: "python3".to_string(),
-            extra_args: vec!["--timeout=60".to_string()],
+            command: "python -m pytest".to_string(),
             ..Default::default()
         };
-        let fw = PytestFramework::new(config);
-        let (program, args) = fw.command_prefix();
-        assert_eq!(program, "python3");
-        assert_eq!(args, vec!["--timeout=60", "-m", "pytest"]);
+        let fw = PytestFramework::new(config)?;
+        assert_eq!(fw.program, "python");
+        assert_eq!(fw.prefix_args, vec!["-m", "pytest"]);
+        Ok(())
     }
 
     #[test]
-    fn test_execution_command_with_run_args() {
+    fn test_new_rejects_invalid_command() {
         let config = PytestFrameworkConfig {
-            command: Some("uv run pytest".to_string()),
+            command: "unclosed 'quote".to_string(),
+            ..Default::default()
+        };
+        assert!(PytestFramework::new(config).is_err());
+    }
+
+    #[test]
+    fn test_new_rejects_empty_command() {
+        let config = PytestFrameworkConfig {
+            command: "".to_string(),
+            ..Default::default()
+        };
+        assert!(PytestFramework::new(config).is_err());
+    }
+
+    #[test]
+    fn test_execution_command_with_run_args() -> Result<(), Box<dyn std::error::Error>> {
+        let config = PytestFrameworkConfig {
+            command: "uv run pytest".to_string(),
             run_args: Some("--no-cov --timeout=30".to_string()),
             ..Default::default()
         };
-        let fw = PytestFramework::new(config);
+        let fw = PytestFramework::new(config)?;
         let record = TestRecord::new("tests/test_a.py::test_one", "test-group");
         let tests = vec![TestInstance::new(&record)];
         let cmd = fw.produce_test_execution_command(&tests, "/tmp/junit.xml");
@@ -231,24 +241,6 @@ mod tests {
         assert!(cmd.args.contains(&"--no-cov".to_string()));
         assert!(cmd.args.contains(&"--timeout=30".to_string()));
         assert!(cmd.args.contains(&"tests/test_a.py::test_one".to_string()));
-    }
-
-    #[test]
-    fn test_run_args_ignored_without_command() {
-        let config = PytestFrameworkConfig {
-            python: "python".to_string(),
-            run_args: Some("--no-cov".to_string()),
-            ..Default::default()
-        };
-        let fw = PytestFramework::new(config);
-        let record = TestRecord::new("tests/test_a.py::test_one", "test-group");
-        let tests = vec![TestInstance::new(&record)];
-        let cmd = fw.produce_test_execution_command(&tests, "/tmp/junit.xml");
-        // run_args should NOT be applied since command is None
-        assert!(!cmd.args.contains(&"--no-cov".to_string()));
-        // Should use legacy python -m pytest
-        assert_eq!(cmd.program, "python");
-        assert!(cmd.args.contains(&"-m".to_string()));
-        assert!(cmd.args.contains(&"pytest".to_string()));
+        Ok(())
     }
 }

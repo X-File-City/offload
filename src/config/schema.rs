@@ -348,26 +348,13 @@ pub struct PytestFrameworkConfig {
     #[serde(default = "default_test_paths")]
     pub paths: Vec<PathBuf>,
 
-    /// pytest marker expression to filter tests.
-    pub markers: Option<String>,
-
-    /// Additional pytest arguments for test discovery.
-    #[serde(default)]
-    pub extra_args: Vec<String>,
-
-    /// Python interpreter to use.
-    #[serde(default = "default_python")]
-    pub python: String,
-
     /// Full command prefix for invoking pytest (e.g. `"uv run pytest"`).
     ///
-    /// When set, replaces the legacy `python` + `extra_args` + `-m pytest` combination.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub command: Option<String>,
+    /// Default: `"python -m pytest"`
+    #[serde(default = "default_pytest_command")]
+    pub command: String,
 
     /// Extra arguments appended only during test execution (not discovery).
-    ///
-    /// Only used when `command` is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_args: Option<String>,
 
@@ -386,8 +373,8 @@ fn default_test_paths() -> Vec<PathBuf> {
     vec![PathBuf::from("tests")]
 }
 
-fn default_python() -> String {
-    "python".to_string()
+fn default_pytest_command() -> String {
+    "python -m pytest".to_string()
 }
 
 fn default_pytest_test_id_format() -> String {
@@ -679,7 +666,7 @@ mod tests {
             }),
             framework: FrameworkConfig::Pytest(PytestFrameworkConfig {
                 paths: vec![PathBuf::from("tests")],
-                python: "python".into(),
+                command: "python -m pytest".into(),
                 test_id_format: "{name}".into(),
                 ..Default::default()
             }),
@@ -845,7 +832,7 @@ mod tests {
         let config: Config = toml::from_str(toml_str)?;
 
         if let FrameworkConfig::Pytest(ref pytest) = config.framework {
-            assert_eq!(pytest.command.as_deref(), Some("uv run pytest"));
+            assert_eq!(pytest.command, "uv run pytest");
             assert_eq!(pytest.run_args.as_deref(), Some("--no-cov"));
         } else {
             return Err("Expected Pytest framework".into());
@@ -855,7 +842,7 @@ mod tests {
         let round_tripped: Config = toml::from_str(&serialized)?;
 
         if let FrameworkConfig::Pytest(ref pytest) = round_tripped.framework {
-            assert_eq!(pytest.command.as_deref(), Some("uv run pytest"));
+            assert_eq!(pytest.command, "uv run pytest");
             assert_eq!(pytest.run_args.as_deref(), Some("--no-cov"));
         } else {
             return Err("Expected Pytest framework after round-trip".into());
@@ -864,9 +851,9 @@ mod tests {
         Ok(())
     }
 
-    /// Test that configs without `command` / `run_args` still deserialize correctly.
+    /// Test that a bare `type = "pytest"` config uses the default command.
     #[test]
-    fn test_pytest_command_backward_compat() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_pytest_default_command() -> Result<(), Box<dyn std::error::Error>> {
         let toml_str = r#"
             [offload]
             sandbox_project_root = "/app"
@@ -876,8 +863,6 @@ mod tests {
 
             [framework]
             type = "pytest"
-            python = "python"
-            extra_args = ["--timeout=60"]
 
             [groups.all]
             retry_count = 0
@@ -886,10 +871,9 @@ mod tests {
         let config: Config = toml::from_str(toml_str)?;
 
         if let FrameworkConfig::Pytest(ref pytest) = config.framework {
-            assert!(pytest.command.is_none());
+            assert_eq!(pytest.command, "python -m pytest");
             assert!(pytest.run_args.is_none());
-            assert_eq!(pytest.python, "python");
-            assert_eq!(pytest.extra_args, vec!["--timeout=60".to_string()]);
+            assert_eq!(pytest.paths, vec![PathBuf::from("tests")]);
         } else {
             return Err("Expected Pytest framework".into());
         }
