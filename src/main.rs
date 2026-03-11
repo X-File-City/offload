@@ -72,6 +72,13 @@ enum Commands {
         /// Emit a Perfetto trace to {output_dir}/trace.json
         #[arg(long)]
         trace: bool,
+
+        /// Show estimated sandbox cost after run.
+        ///
+        /// Note: This is calculated client-side using simple formulas and
+        /// may not reflect actual billing, discounts, or pricing adjustments.
+        #[arg(long)]
+        show_estimated_cost: bool,
     },
 
     /// Discover tests without running them
@@ -139,6 +146,7 @@ async fn main() -> Result<()> {
             env_vars,
             no_cache,
             trace,
+            show_estimated_cost: _,
         } => {
             run_tests(
                 &cli.config,
