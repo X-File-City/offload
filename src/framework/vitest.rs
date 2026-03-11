@@ -269,6 +269,10 @@ impl TestFramework for VitestFramework {
         cmd
     }
 
+    fn report_format(&self) -> &str {
+        "json"
+    }
+
     fn process_results(&self, raw_output: &str) -> String {
         // Parse vitest JSON output and convert to JUnit XML with line numbers
         // in classname for unique test identification.

@@ -342,7 +342,7 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
         }
 
         // Generate a unique result path per sandbox to avoid collisions
-        let result_path = format!("/tmp/{}.xml", sandbox_id);
+        let result_path = format!("/tmp/{}.{}", sandbox_id, self.framework.report_format());
 
         // Generate the run command for all tests
         let mut cmd = self

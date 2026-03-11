@@ -272,6 +272,15 @@ pub trait TestFramework: Send + Sync {
     /// * `tests` - Tests to execute (borrowed from TestRecords)
     fn produce_test_execution_command(&self, tests: &[TestInstance], result_path: &str) -> Command;
 
+    /// File format for the test result file produced by the framework.
+    ///
+    /// Used as the file extension for the result file path.
+    /// Default: `"xml"` (JUnit XML). Frameworks that produce other formats
+    /// (e.g., JSON) should override this.
+    fn report_format(&self) -> &str {
+        "xml"
+    }
+
     /// Processes raw test result output into JUnit XML.
     ///
     /// Frameworks can override this to convert non-JUnit output formats
