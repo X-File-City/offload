@@ -282,6 +282,12 @@ pub trait Sandbox: Send {
     ///
     /// This method is idempotent - calling it multiple times is safe.
     async fn terminate(&self) -> ProviderResult<()>;
+
+    /// Returns the estimated cost incurred by this sandbox.
+    ///
+    /// The cost is calculated based on elapsed time since sandbox creation
+    /// and provider-specific pricing. For local sandboxes, returns zero cost.
+    fn cost_estimate(&self) -> CostEstimate;
 }
 
 /// Streams a prepare command, buffering output while discovery is in-flight.

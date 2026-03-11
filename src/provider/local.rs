@@ -8,7 +8,8 @@ use futures::stream::{self, StreamExt};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use super::{
-    Command, OutputLine, OutputStream, ProviderError, ProviderResult, Sandbox, SandboxProvider,
+    Command, CostEstimate, OutputLine, OutputStream, ProviderError, ProviderResult, Sandbox,
+    SandboxProvider,
 };
 use crate::config::{LocalProviderConfig, SandboxConfig};
 
@@ -173,6 +174,10 @@ impl Sandbox for LocalSandbox {
     async fn terminate(&self) -> ProviderResult<()> {
         // Process sandboxes don't need explicit cleanup
         Ok(())
+    }
+
+    fn cost_estimate(&self) -> CostEstimate {
+        CostEstimate::default()
     }
 }
 

@@ -70,7 +70,7 @@ impl<S: Sandbox> Default for SandboxPool<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::{OutputStream, ProviderResult};
+    use crate::provider::{CostEstimate, OutputStream, ProviderResult};
     use async_trait::async_trait;
     use std::path::Path;
 
@@ -94,6 +94,9 @@ mod tests {
         }
         async fn terminate(&self) -> ProviderResult<()> {
             Ok(())
+        }
+        fn cost_estimate(&self) -> CostEstimate {
+            CostEstimate::default()
         }
     }
 

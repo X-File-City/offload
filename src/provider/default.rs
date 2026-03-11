@@ -9,9 +9,12 @@ use async_trait::async_trait;
 use tracing::{debug, warn};
 
 use super::{
-    Command, OutputStream, ProviderError, ProviderResult, Sandbox, SandboxProvider,
+    Command, CostEstimate, OutputStream, ProviderError, ProviderResult, Sandbox, SandboxProvider,
     run_prepare_command,
 };
+
+/// Modal non-preemptible pricing: $0.00003942 per CPU-core per second.
+const MODAL_CPU_COST_PER_CORE_PER_SEC: f64 = 0.00003942;
 use crate::config::{DefaultProviderConfig, SandboxConfig};
 use crate::connector::{Connector, ShellConnector};
 
@@ -213,8 +216,7 @@ pub struct DefaultSandbox {
     download_command: Option<String>,
     /// Environment variables to pass to commands
     env: Vec<(String, String)>,
-    /// When this sandbox was created (used for cost estimation at termination)
-    #[allow(dead_code)]
+    /// When this sandbox was created (used for cost estimation).
     created_at: Instant,
 }
 
@@ -380,6 +382,15 @@ impl Sandbox for DefaultSandbox {
         }
 
         Ok(())
+    }
+
+    fn cost_estimate(&self) -> CostEstimate {
+        let cpu_seconds = self.created_at.elapsed().as_secs_f64();
+        let estimated_cost_usd = cpu_seconds * MODAL_CPU_COST_PER_CORE_PER_SEC;
+        CostEstimate {
+            cpu_seconds,
+            estimated_cost_usd,
+        }
     }
 }
 
