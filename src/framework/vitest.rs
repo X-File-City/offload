@@ -142,33 +142,6 @@ struct VitestJsonLocation {
     line: u32,
 }
 
-/// Intermediate structure for building JUnit XML testsuites.
-struct JunitTestSuite {
-    name: String,
-    tests: i32,
-    failures: i32,
-    time: f64,
-    testcases: Vec<JunitTestCase>,
-}
-
-/// Intermediate structure for building JUnit XML testcases.
-struct JunitTestCase {
-    classname: String,
-    name: String,
-    time: f64,
-    failure_message: Option<String>,
-    skipped: bool,
-}
-
-/// Escape special XML characters.
-fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-
 #[async_trait]
 impl TestFramework for VitestFramework {
     async fn discover(
@@ -274,8 +247,10 @@ impl TestFramework for VitestFramework {
     }
 
     fn process_results(&self, raw_output: &str) -> String {
-        // Parse vitest JSON output and convert to JUnit XML with line numbers
-        // in classname for unique test identification.
+        use quick_xml::Writer;
+        use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
+        use std::io::Cursor;
+
         let report: VitestJsonReport = match serde_json::from_str(raw_output) {
             Ok(r) => r,
             Err(e) => {
@@ -288,30 +263,47 @@ impl TestFramework for VitestFramework {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
 
-        // Collect all testsuites
-        let mut suites: Vec<JunitTestSuite> = Vec::new();
+        let _ = writer.write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)));
+
+        // Collect suite data first to compute totals.
+        struct SuiteData {
+            name: String,
+            tests: i32,
+            failures: i32,
+            time: f64,
+            cases: Vec<CaseData>,
+        }
+        struct CaseData {
+            classname: String,
+            name: String,
+            time: f64,
+            failure_message: Option<String>,
+        }
+
+        let mut suites = Vec::new();
         let mut total_tests = 0;
         let mut total_failures = 0;
         let mut total_time = 0.0;
 
         for test_result in &report.test_results {
-            // Make file path relative
             let file = test_result
                 .name
                 .strip_prefix(&cwd_str)
                 .unwrap_or(&test_result.name)
                 .trim_start_matches('/');
 
-            let mut suite_tests = 0;
-            let mut suite_failures = 0;
-            let mut suite_time = 0.0;
-            let mut testcases = Vec::new();
+            let mut suite = SuiteData {
+                name: file.to_string(),
+                tests: 0,
+                failures: 0,
+                time: 0.0,
+                cases: Vec::new(),
+            };
 
             for ar in &test_result.assertion_results {
-                // Skip pending/todo tests
-                if ar.status == "pending" || ar.status == "todo" {
+                if ar.status == "pending" || ar.status == "todo" || ar.status == "skipped" {
                     continue;
                 }
 
@@ -323,8 +315,7 @@ impl TestFramework for VitestFramework {
                     .collect::<Vec<_>>()
                     .join(" > ");
 
-                let line = ar.location.as_ref().map(|l| l.line);
-                let classname = match line {
+                let classname = match ar.location.as_ref().map(|l| l.line) {
                     Some(l) => format!("{}:{}", file, l),
                     None => file.to_string(),
                 };
@@ -332,13 +323,13 @@ impl TestFramework for VitestFramework {
                 let duration_secs = ar.duration.unwrap_or(0.0) / 1000.0;
                 let failed = ar.status == "failed";
 
-                suite_tests += 1;
-                suite_time += duration_secs;
+                suite.tests += 1;
+                suite.time += duration_secs;
                 if failed {
-                    suite_failures += 1;
+                    suite.failures += 1;
                 }
 
-                testcases.push(JunitTestCase {
+                suite.cases.push(CaseData {
                     classname,
                     name,
                     time: duration_secs,
@@ -347,62 +338,67 @@ impl TestFramework for VitestFramework {
                     } else {
                         None
                     },
-                    skipped: ar.status == "skipped",
                 });
             }
 
-            total_tests += suite_tests;
-            total_failures += suite_failures;
-            total_time += suite_time;
-
-            suites.push(JunitTestSuite {
-                name: file.to_string(),
-                tests: suite_tests,
-                failures: suite_failures,
-                time: suite_time,
-                testcases,
-            });
+            total_tests += suite.tests;
+            total_failures += suite.failures;
+            total_time += suite.time;
+            suites.push(suite);
         }
 
-        // Build XML
-        xml.push_str(&format!(
-            "<testsuites name=\"vitest tests\" tests=\"{}\" failures=\"{}\" errors=\"0\" time=\"{:.6}\">\n",
-            total_tests, total_failures, total_time
-        ));
+        // Write <testsuites>
+        let mut ts_elem = BytesStart::new("testsuites");
+        ts_elem.push_attribute(("name", "vitest tests"));
+        ts_elem.push_attribute(("tests", total_tests.to_string().as_str()));
+        ts_elem.push_attribute(("failures", total_failures.to_string().as_str()));
+        ts_elem.push_attribute(("errors", "0"));
+        ts_elem.push_attribute(("time", format!("{:.6}", total_time).as_str()));
+        let _ = writer.write_event(Event::Start(ts_elem));
 
         for suite in &suites {
-            if suite.testcases.is_empty() {
+            if suite.cases.is_empty() {
                 continue;
             }
-            xml.push_str(&format!(
-                "  <testsuite name=\"{}\" tests=\"{}\" failures=\"{}\" errors=\"0\" skipped=\"0\" time=\"{:.6}\">\n",
-                xml_escape(&suite.name), suite.tests, suite.failures, suite.time
-            ));
-            for tc in &suite.testcases {
-                if tc.skipped {
-                    continue;
-                }
-                xml.push_str(&format!(
-                    "    <testcase classname=\"{}\" name=\"{}\" time=\"{:.6}\"",
-                    xml_escape(&tc.classname),
-                    xml_escape(&tc.name),
-                    tc.time
-                ));
+
+            let mut s_elem = BytesStart::new("testsuite");
+            s_elem.push_attribute(("name", suite.name.as_str()));
+            s_elem.push_attribute(("tests", suite.tests.to_string().as_str()));
+            s_elem.push_attribute(("failures", suite.failures.to_string().as_str()));
+            s_elem.push_attribute(("errors", "0"));
+            s_elem.push_attribute(("skipped", "0"));
+            s_elem.push_attribute(("time", format!("{:.6}", suite.time).as_str()));
+            let _ = writer.write_event(Event::Start(s_elem));
+
+            for tc in &suite.cases {
+                let mut tc_elem = BytesStart::new("testcase");
+                tc_elem.push_attribute(("classname", tc.classname.as_str()));
+                tc_elem.push_attribute(("name", tc.name.as_str()));
+                tc_elem.push_attribute(("time", format!("{:.6}", tc.time).as_str()));
+
                 if let Some(ref msg) = tc.failure_message {
-                    xml.push_str(&format!(
-                        ">\n      <failure message=\"{}\">{}</failure>\n    </testcase>\n",
-                        xml_escape(msg.lines().next().unwrap_or("")),
-                        xml_escape(msg)
-                    ));
+                    let _ = writer.write_event(Event::Start(tc_elem));
+
+                    let mut fail_elem = BytesStart::new("failure");
+                    let first_line = msg.lines().next().unwrap_or("");
+                    fail_elem.push_attribute(("message", first_line));
+                    let _ = writer.write_event(Event::Start(fail_elem));
+                    let _ = writer.write_event(Event::Text(BytesText::new(msg)));
+                    let _ = writer.write_event(Event::End(BytesEnd::new("failure")));
+
+                    let _ = writer.write_event(Event::End(BytesEnd::new("testcase")));
                 } else {
-                    xml.push_str("/>\n");
+                    let _ = writer.write_event(Event::Empty(tc_elem));
                 }
             }
-            xml.push_str("  </testsuite>\n");
-        }
-        xml.push_str("</testsuites>\n");
 
-        xml
+            let _ = writer.write_event(Event::End(BytesEnd::new("testsuite")));
+        }
+
+        let _ = writer.write_event(Event::End(BytesEnd::new("testsuites")));
+
+        String::from_utf8(writer.into_inner().into_inner())
+            .unwrap_or_else(|_| raw_output.to_string())
     }
 }
 
