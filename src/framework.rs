@@ -288,7 +288,7 @@ pub trait TestFramework: Send + Sync {
     /// their JUnit output.
     ///
     /// Default implementation returns the input unchanged (assumes JUnit XML).
-    fn process_results(&self, raw_output: &str) -> FrameworkResult<String> {
+    fn xml_from_report(&self, raw_output: &str) -> FrameworkResult<String> {
         Ok(raw_output.to_string())
     }
 }

@@ -12,7 +12,7 @@ use crate::provider::Command;
 ///
 /// Uses `vitest list --json --includeTaskLocation` for test discovery and
 /// JSON output with `--reporter=json --includeTaskLocation` for results,
-/// which are converted to JUnit XML via `process_results`.
+/// which are converted to JUnit XML via `xml_from_report`.
 pub struct VitestFramework {
     config: VitestFrameworkConfig,
     /// The program to invoke (first token of `command`).
@@ -241,7 +241,7 @@ impl TestFramework for VitestFramework {
         "json"
     }
 
-    fn process_results(&self, raw_output: &str) -> super::FrameworkResult<String> {
+    fn xml_from_report(&self, raw_output: &str) -> super::FrameworkResult<String> {
         use quick_xml::Writer;
         use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
         use std::io::Cursor;
@@ -463,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn test_process_results_converts_json_with_lines() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_xml_from_report_converts_json_with_lines() -> Result<(), Box<dyn std::error::Error>> {
         let config = VitestFrameworkConfig::default();
         let fw = VitestFramework::new(config)?;
 
@@ -491,7 +491,7 @@ mod tests {
             }]
         }"#;
 
-        let junit = fw.process_results(json)?;
+        let junit = fw.xml_from_report(json)?;
 
         // The file path in classname depends on CWD stripping; just check
         // that the line number suffix is present and the structure is correct.
@@ -516,7 +516,7 @@ mod tests {
     }
 
     #[test]
-    fn test_process_results_skips_pending() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_xml_from_report_skips_pending() -> Result<(), Box<dyn std::error::Error>> {
         let config = VitestFrameworkConfig::default();
         let fw = VitestFramework::new(config)?;
 
@@ -544,7 +544,7 @@ mod tests {
             }]
         }"#;
 
-        let junit = fw.process_results(json)?;
+        let junit = fw.xml_from_report(json)?;
 
         assert!(
             junit.contains("runs"),
@@ -561,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn test_process_results_skips_skipped() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_xml_from_report_skips_skipped() -> Result<(), Box<dyn std::error::Error>> {
         let config = VitestFrameworkConfig::default();
         let fw = VitestFramework::new(config)?;
 
@@ -589,7 +589,7 @@ mod tests {
             }]
         }"#;
 
-        let junit = fw.process_results(json)?;
+        let junit = fw.xml_from_report(json)?;
 
         assert!(
             junit.contains("runs"),
@@ -606,11 +606,11 @@ mod tests {
     }
 
     #[test]
-    fn test_process_results_rejects_invalid_input() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_xml_from_report_rejects_invalid_input() -> Result<(), Box<dyn std::error::Error>> {
         let config = VitestFrameworkConfig::default();
         let fw = VitestFramework::new(config)?;
 
-        let result = fw.process_results("not json");
+        let result = fw.xml_from_report("not json");
         assert!(result.is_err());
 
         Ok(())
