@@ -3,6 +3,7 @@
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use tracing::{debug, warn};
@@ -164,6 +165,7 @@ impl SandboxProvider for DefaultProvider {
             destroy_command: self.config.destroy_command.clone(),
             download_command: self.config.download_command.clone(),
             env,
+            created_at: Instant::now(),
         })
     }
 
@@ -211,6 +213,9 @@ pub struct DefaultSandbox {
     download_command: Option<String>,
     /// Environment variables to pass to commands
     env: Vec<(String, String)>,
+    /// When this sandbox was created (used for cost estimation at termination)
+    #[allow(dead_code)]
+    created_at: Instant,
 }
 
 impl DefaultSandbox {
@@ -227,6 +232,7 @@ impl DefaultSandbox {
     /// * `destroy_command` - Command template with `{sandbox_id}` placeholder
     /// * `download_command` - Optional command template with `{sandbox_id}` and `{paths}` placeholders
     /// * `env` - Environment variables to pass to commands
+    /// * `created_at` - When this sandbox was created
     pub fn new(
         id: String,
         connector: Arc<ShellConnector>,
@@ -234,6 +240,7 @@ impl DefaultSandbox {
         destroy_command: String,
         download_command: Option<String>,
         env: Vec<(String, String)>,
+        created_at: Instant,
     ) -> Self {
         Self {
             id,
@@ -242,6 +249,7 @@ impl DefaultSandbox {
             destroy_command,
             download_command,
             env,
+            created_at,
         }
     }
 
@@ -388,6 +396,7 @@ mod tests {
             destroy_command: "destroy {sandbox_id}".to_string(),
             download_command: None,
             env,
+            created_at: Instant::now(),
         }
     }
 

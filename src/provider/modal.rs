@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use tracing::debug;
@@ -178,6 +179,7 @@ impl SandboxProvider for ModalProvider {
             destroy_command,
             download_command,
             env,
+            Instant::now(),
         ))
     }
 
