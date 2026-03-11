@@ -395,7 +395,7 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
             self.sandbox_pid,
             crate::trace::TID_IO,
         );
-        let batch_had_failures = match self.try_download_results(unique_count).await {
+        let batch_had_failures = match self.try_download_results(&result_path, unique_count).await {
             Some((raw_content, _raw_count)) => {
                 info!(
                     "[BATCH RESULTS] Sandbox {} downloaded result file: total={}, unique={}, bytes={}",
@@ -473,19 +473,20 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
         }
     }
 
-    /// Try to download JUnit results from the sandbox.
-    /// Returns (xml_content, testcase_count) if successful.
-    async fn try_download_results(&mut self, expected_count: usize) -> Option<(String, usize)> {
+    /// Try to download test results from the sandbox.
+    /// Returns (content, testcase_count) if successful.
+    async fn try_download_results(
+        &mut self,
+        result_path: &str,
+        expected_count: usize,
+    ) -> Option<(String, usize)> {
         let sandbox_id = self.sandbox.id().to_string();
-
-        // Download from /tmp/{sandbox_id}.xml (unique per sandbox to avoid collisions)
-        let remote_path_str = format!("/tmp/{}.xml", sandbox_id);
-        let remote_path = std::path::Path::new(&remote_path_str);
+        let remote_path = std::path::Path::new(result_path);
         let temp_file = tempfile::NamedTempFile::new().ok()?;
 
         debug!(
             "[DOWNLOAD] Sandbox {} downloading {}...",
-            sandbox_id, remote_path_str
+            sandbox_id, result_path
         );
         let path_pairs = [(remote_path, temp_file.path() as &std::path::Path)];
         match self.sandbox.download(&path_pairs).await {
