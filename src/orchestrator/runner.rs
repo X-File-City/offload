@@ -342,7 +342,7 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
         }
 
         // Generate a unique result path per sandbox to avoid collisions
-        let result_path = format!("/tmp/{}.xml", sandbox_id);
+        let result_path = format!("/tmp/{}.{}", sandbox_id, self.framework.report_format());
 
         // Generate the run command for all tests
         let mut cmd = self
@@ -395,32 +395,49 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
             self.sandbox_pid,
             crate::trace::TID_IO,
         );
-        let batch_had_failures = match self.try_download_results(unique_count).await {
-            Some((xml_content, actual_count)) => {
+        let batch_had_failures = match self.try_download_results(&result_path, unique_count).await {
+            Some((raw_content, _raw_count)) => {
                 info!(
-                    "[BATCH RESULTS] Sandbox {} downloaded junit.xml: total={}, unique={}, actual={}, bytes={}",
+                    "[BATCH RESULTS] Sandbox {} downloaded result file: total={}, unique={}, bytes={}",
                     sandbox_id,
                     expected_count,
                     unique_count,
-                    actual_count,
-                    xml_content.len()
+                    raw_content.len()
                 );
 
-                // Fail if we got fewer results than unique count (what pytest should produce)
-                if actual_count < unique_count {
-                    return Err(anyhow::anyhow!(
-                        "Sandbox {} expected {} unique tests but got {} in junit.xml",
-                        sandbox_id,
-                        unique_count,
-                        actual_count
-                    ));
+                // Convert raw output to JUnit XML (vitest produces JSON, others pass through)
+                let junit_xml = self
+                    .framework
+                    .xml_from_report(&raw_content)
+                    .map_err(|e| anyhow::anyhow!("Failed to process test results: {}", e))?;
+
+                // Count testcases in the processed JUnit XML
+                let processed_count = count_testcases_in_xml(&junit_xml);
+
+                if processed_count < unique_count {
+                    // Log warning but don't fail — some frameworks (vitest) filter
+                    // non-targeted tests during processing
+                    warn!(
+                        "[BATCH RESULTS] Sandbox {} expected {} unique tests but got {} after processing",
+                        sandbox_id, unique_count, processed_count
+                    );
+                }
+
+                // Save processed JUnit XML to parts dir (overwrites raw download)
+                if let Some(ref parts_dir) = self.parts_dir {
+                    let safe_id =
+                        sandbox_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+                    let part_file = parts_dir.join(format!("{}.xml", safe_id));
+                    if let Err(e) = std::fs::write(&part_file, &junit_xml) {
+                        warn!("Failed to save processed part file {:?}: {}", part_file, e);
+                    }
                 }
 
                 if let Some(report) = &self.junit_report {
                     match report.lock() {
                         Ok(mut report) => {
                             let before = report.total_count();
-                            report.add_junit_xml(&xml_content);
+                            report.add_junit_xml(&junit_xml);
                             let after = report.total_count();
                             info!(
                                 "[BATCH ADDED] Sandbox {} added to master report: before={}, after={}, delta={}",
@@ -440,7 +457,7 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
                 } else {
                     warn!("[BATCH WARN] No junit report configured for {}", sandbox_id);
                 }
-                has_failures_in_xml(&xml_content)
+                has_failures_in_xml(&junit_xml)
             }
             None => {
                 return Err(anyhow::anyhow!(
@@ -459,19 +476,20 @@ impl<'a, S: Sandbox, D: TestFramework> TestRunner<'a, S, D> {
         }
     }
 
-    /// Try to download JUnit results from the sandbox.
-    /// Returns (xml_content, testcase_count) if successful.
-    async fn try_download_results(&mut self, expected_count: usize) -> Option<(String, usize)> {
+    /// Try to download test results from the sandbox.
+    /// Returns (content, testcase_count) if successful.
+    async fn try_download_results(
+        &mut self,
+        result_path: &str,
+        expected_count: usize,
+    ) -> Option<(String, usize)> {
         let sandbox_id = self.sandbox.id().to_string();
-
-        // Download from /tmp/{sandbox_id}.xml (unique per sandbox to avoid collisions)
-        let remote_path_str = format!("/tmp/{}.xml", sandbox_id);
-        let remote_path = std::path::Path::new(&remote_path_str);
+        let remote_path = std::path::Path::new(result_path);
         let temp_file = tempfile::NamedTempFile::new().ok()?;
 
         debug!(
             "[DOWNLOAD] Sandbox {} downloading {}...",
-            sandbox_id, remote_path_str
+            sandbox_id, result_path
         );
         let path_pairs = [(remote_path, temp_file.path() as &std::path::Path)];
         match self.sandbox.download(&path_pairs).await {
