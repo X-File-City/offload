@@ -41,6 +41,7 @@ offload run --copy-dir ".:/app"             # copy cwd into sandbox at /app
 offload run --env KEY=VALUE                 # set sandbox env var (repeatable)
 offload run --no-cache                      # force fresh image build
 offload run --collect-only                  # discover tests without running
+offload run --show-estimated-cost           # show sandbox cost after run
 offload run -c path/to/offload.toml         # use alternate config
 ```
 
@@ -71,24 +72,54 @@ If Offload is not installed or Modal credentials are unavailable, use the projec
 
 ## Debugging Failed Tests
 
+### Run summary
+
+After a run completes, offload prints a summary:
+
+```
+Test Results:
+  Total:   128
+  Passed:  126
+  Failed:  2
+  Duration: 6.01s
+  Estimated cost: $0.0004 (11.1 CPU-seconds)
+```
+
+The `Estimated cost` line appears when `--show-estimated-cost` is passed to `offload run`. Use the summary to confirm tests ran and gauge the scope of failures before diving into logs.
+
 ### Reading logs
 
-Always filter `offload logs` output to avoid flooding your context window. Never run bare `offload logs` on a large suite.
+**Important:** If you ran with `-c path/to/config.toml`, pass the same `-c` flag to `offload logs`. Logs are stored in the config's `output_dir`, so mismatched configs will show stale or missing results.
 
-```bash
-offload logs --failures                           # only failed tests
-offload logs --test "path/to/test.py::test_name"  # exact test ID
-offload logs --test-regex "test_math"             # regex substring match
-offload logs --failures --test-regex "database"   # combine filters (AND logic)
+Always filter `offload logs` output to avoid flooding your context window. Never run bare `offload logs` on a large suite. Follow this workflow:
+
+1. **Check the run summary** to see how many tests failed.
+2. **Retrieve failure output** (choose based on what fits your context window):
+   - Use `--failures` to see all failures at once.
+     ```bash
+     offload logs --failures
+     ```
+   - Use `--test` or `--test-regex` to isolate a specific test.
+     ```bash
+     offload logs --test "path/to/test.py::test_name"  # exact test ID
+     offload logs --test-regex "test_math"             # regex substring match
+     ```
+   Filters combine with AND logic:
+   ```bash
+   offload logs --failures --test-regex "database"
+   ```
+3. **Fix and rerun.**
+
+Each test is separated by a banner showing its ID and status. The test ID format varies by framework:
+
 ```
-
-Each test is separated by a banner showing its ID and status:
-
-```
-=== tests/test_math.py::test_add [PASSED] ===
-
 === tests/test_math.py::test_div [FAILED] ===
 AssertionError: expected 2 got 3
+
+=== trace::tests::test_active_tracer [FAILED] ===
+assertion `left == right` failed
+  left: 2
+ right: 3
 ```
 
 ### Flaky tests
