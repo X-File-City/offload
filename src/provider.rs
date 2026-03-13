@@ -20,6 +20,25 @@ use crate::connector::{Connector, ShellConnector};
 /// or a [`ProviderError`] describing what went wrong.
 pub type ProviderResult<T> = Result<T, ProviderError>;
 
+/// Estimated compute cost of a sandbox or aggregated run.
+#[derive(Clone, Debug, Default)]
+pub struct CostEstimate {
+    /// Total CPU-seconds consumed.
+    pub cpu_seconds: f64,
+    /// Estimated cost in USD.
+    pub estimated_cost_usd: f64,
+}
+
+impl std::fmt::Display for CostEstimate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Estimated cost: ${:.4} ({:.1} CPU-seconds)",
+            self.estimated_cost_usd, self.cpu_seconds
+        )
+    }
+}
+
 /// Errors that can occur during provider operations.
 ///
 /// Errors are categorized to enable appropriate handling strategies:
@@ -260,6 +279,12 @@ pub trait Sandbox: Send {
     ///
     /// This method is idempotent - calling it multiple times is safe.
     async fn terminate(&self) -> ProviderResult<()>;
+
+    /// Returns the estimated cost incurred by this sandbox.
+    ///
+    /// The cost is calculated based on elapsed time since sandbox creation
+    /// and provider-specific pricing. For local sandboxes, returns zero cost.
+    fn cost_estimate(&self) -> CostEstimate;
 }
 
 /// Streams a prepare command, buffering output while discovery is in-flight.
@@ -388,5 +413,101 @@ pub trait SandboxProvider: Send + Sync {
     /// should override this method.
     fn base_env(&self) -> Vec<(String, String)> {
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cost_estimate_display_formats_cost_and_seconds() {
+        let cost = CostEstimate {
+            cpu_seconds: 123.4,
+            estimated_cost_usd: 0.0048,
+        };
+        let display = format!("{}", cost);
+        assert_eq!(display, "Estimated cost: $0.0048 (123.4 CPU-seconds)");
+    }
+
+    #[test]
+    fn cost_estimate_display_zero() {
+        let cost = CostEstimate::default();
+        let display = format!("{}", cost);
+        assert_eq!(display, "Estimated cost: $0.0000 (0.0 CPU-seconds)");
+    }
+
+    #[test]
+    fn cost_estimate_default_is_zero() {
+        let cost = CostEstimate::default();
+        assert_eq!(cost.cpu_seconds, 0.0);
+        assert_eq!(cost.estimated_cost_usd, 0.0);
+    }
+
+    #[test]
+    fn cost_estimate_display_small_values() {
+        let cost = CostEstimate {
+            cpu_seconds: 0.5,
+            estimated_cost_usd: 0.00001971,
+        };
+        let display = format!("{}", cost);
+        assert!(
+            display.contains("$0.0000"),
+            "small cost rounds to 4 decimals: {display}"
+        );
+        assert!(
+            display.contains("0.5 CPU-seconds"),
+            "fractional seconds: {display}"
+        );
+    }
+
+    #[test]
+    fn cost_estimate_display_large_values() {
+        let cost = CostEstimate {
+            cpu_seconds: 50000.0,
+            estimated_cost_usd: 1.971,
+        };
+        let display = format!("{}", cost);
+        assert_eq!(display, "Estimated cost: $1.9710 (50000.0 CPU-seconds)");
+    }
+
+    #[test]
+    fn cost_estimate_aggregation() {
+        let costs = [
+            CostEstimate {
+                cpu_seconds: 10.0,
+                estimated_cost_usd: 0.001,
+            },
+            CostEstimate {
+                cpu_seconds: 20.0,
+                estimated_cost_usd: 0.002,
+            },
+            CostEstimate {
+                cpu_seconds: 30.0,
+                estimated_cost_usd: 0.003,
+            },
+        ];
+
+        let total = costs.iter().fold(CostEstimate::default(), |mut acc, cost| {
+            acc.cpu_seconds += cost.cpu_seconds;
+            acc.estimated_cost_usd += cost.estimated_cost_usd;
+            acc
+        });
+
+        assert_eq!(total.cpu_seconds, 60.0);
+        assert!((total.estimated_cost_usd - 0.006).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn cost_estimate_aggregation_empty() {
+        let costs: Vec<CostEstimate> = vec![];
+        let total = costs.iter().fold(CostEstimate::default(), |mut acc, cost| {
+            acc.cpu_seconds += cost.cpu_seconds;
+            acc.estimated_cost_usd += cost.estimated_cost_usd;
+            acc
+        });
+
+        assert_eq!(total.cpu_seconds, 0.0);
+        assert_eq!(total.estimated_cost_usd, 0.0);
     }
 }

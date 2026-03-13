@@ -3,14 +3,18 @@
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use tracing::{debug, warn};
 
 use super::{
-    Command, OutputStream, ProviderError, ProviderResult, Sandbox, SandboxProvider,
+    Command, CostEstimate, OutputStream, ProviderError, ProviderResult, Sandbox, SandboxProvider,
     run_prepare_command,
 };
+
+/// Modal non-preemptible pricing: $0.00003942 per CPU-core per second.
+const MODAL_CPU_COST_PER_CORE_PER_SEC: f64 = 0.00003942;
 use crate::config::{DefaultProviderConfig, SandboxConfig};
 use crate::connector::{Connector, ShellConnector};
 
@@ -124,11 +128,21 @@ impl SandboxProvider for DefaultProvider {
     async fn create_sandbox(&self, config: &SandboxConfig) -> ProviderResult<DefaultSandbox> {
         debug!("Creating default sandbox: {}", config.id);
 
-        // Build the create command, substituting {image_id} if available
+        let cpu_cores = self.config.cpu_cores;
+        let cpu_cores_str = cpu_cores.to_string();
+
+        // Build the create command, substituting {image_id} and {cpu_cores} if available
         // Note: copy_dirs are already baked into the image during prepare
         let create_command = match self.image_id.as_ref() {
-            Some(id) => self.config.create_command.replace("{image_id}", id),
-            None => self.config.create_command.clone(),
+            Some(id) => self
+                .config
+                .create_command
+                .replace("{image_id}", id)
+                .replace("{cpu_cores}", &cpu_cores_str),
+            None => self
+                .config
+                .create_command
+                .replace("{cpu_cores}", &cpu_cores_str),
         };
 
         debug!("{}", create_command);
@@ -157,13 +171,30 @@ impl SandboxProvider for DefaultProvider {
         let mut env = self.base_env();
         env.extend(config.env.iter().cloned());
 
+        // Apply {cpu_cores} placeholder to command templates
+        let exec_command = self
+            .config
+            .exec_command
+            .replace("{cpu_cores}", &cpu_cores_str);
+        let destroy_command = self
+            .config
+            .destroy_command
+            .replace("{cpu_cores}", &cpu_cores_str);
+        let download_command = self
+            .config
+            .download_command
+            .as_ref()
+            .map(|cmd| cmd.replace("{cpu_cores}", &cpu_cores_str));
+
         Ok(DefaultSandbox {
             id: remote_id,
             connector: self.connector.clone(),
-            exec_command: self.config.exec_command.clone(),
-            destroy_command: self.config.destroy_command.clone(),
-            download_command: self.config.download_command.clone(),
+            exec_command,
+            destroy_command,
+            download_command,
             env,
+            created_at: Instant::now(),
+            cpu_cores,
         })
     }
 
@@ -211,6 +242,10 @@ pub struct DefaultSandbox {
     download_command: Option<String>,
     /// Environment variables to pass to commands
     env: Vec<(String, String)>,
+    /// When this sandbox was created (used for cost estimation).
+    created_at: Instant,
+    /// CPU cores allocated to this sandbox.
+    cpu_cores: f64,
 }
 
 impl DefaultSandbox {
@@ -227,6 +262,9 @@ impl DefaultSandbox {
     /// * `destroy_command` - Command template with `{sandbox_id}` placeholder
     /// * `download_command` - Optional command template with `{sandbox_id}` and `{paths}` placeholders
     /// * `env` - Environment variables to pass to commands
+    /// * `created_at` - When this sandbox was created
+    /// * `cpu_cores` - CPU cores allocated to this sandbox
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
         connector: Arc<ShellConnector>,
@@ -234,6 +272,8 @@ impl DefaultSandbox {
         destroy_command: String,
         download_command: Option<String>,
         env: Vec<(String, String)>,
+        created_at: Instant,
+        cpu_cores: f64,
     ) -> Self {
         Self {
             id,
@@ -242,6 +282,8 @@ impl DefaultSandbox {
             destroy_command,
             download_command,
             env,
+            created_at,
+            cpu_cores,
         }
     }
 
@@ -373,6 +415,16 @@ impl Sandbox for DefaultSandbox {
 
         Ok(())
     }
+
+    fn cost_estimate(&self) -> CostEstimate {
+        let elapsed = self.created_at.elapsed().as_secs_f64();
+        let cpu_seconds = elapsed * self.cpu_cores;
+        let estimated_cost_usd = cpu_seconds * MODAL_CPU_COST_PER_CORE_PER_SEC;
+        CostEstimate {
+            cpu_seconds,
+            estimated_cost_usd,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -388,6 +440,8 @@ mod tests {
             destroy_command: "destroy {sandbox_id}".to_string(),
             download_command: None,
             env,
+            created_at: Instant::now(),
+            cpu_cores: 1.0,
         }
     }
 
@@ -643,6 +697,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn cost_estimate_scales_with_cpu_cores() {
+        use crate::provider::Sandbox;
+
+        let sandbox = DefaultSandbox {
+            id: "sb-cost-1".to_string(),
+            connector: Arc::new(ShellConnector::new()),
+            exec_command: String::new(),
+            destroy_command: String::new(),
+            download_command: None,
+            env: vec![],
+            created_at: Instant::now() - std::time::Duration::from_secs(100),
+            cpu_cores: 2.0,
+        };
+
+        let cost = sandbox.cost_estimate();
+        // 100s * 2.0 cores = ~200 CPU-seconds (allow small timing tolerance)
+        assert!(
+            cost.cpu_seconds >= 199.0 && cost.cpu_seconds <= 201.0,
+            "cpu_seconds should be ~200: {}",
+            cost.cpu_seconds
+        );
+        let expected_usd = cost.cpu_seconds * MODAL_CPU_COST_PER_CORE_PER_SEC;
+        assert!(
+            (cost.estimated_cost_usd - expected_usd).abs() < 0.0001,
+            "cost should match rate * cpu_seconds"
+        );
+    }
+
+    #[test]
+    fn cost_estimate_fractional_cpu_cores() {
+        use crate::provider::Sandbox;
+
+        let sandbox = DefaultSandbox {
+            id: "sb-cost-2".to_string(),
+            connector: Arc::new(ShellConnector::new()),
+            exec_command: String::new(),
+            destroy_command: String::new(),
+            download_command: None,
+            env: vec![],
+            created_at: Instant::now() - std::time::Duration::from_secs(100),
+            cpu_cores: 0.125,
+        };
+
+        let cost = sandbox.cost_estimate();
+        // 100s * 0.125 cores = ~12.5 CPU-seconds
+        assert!(
+            cost.cpu_seconds >= 12.0 && cost.cpu_seconds <= 13.0,
+            "cpu_seconds should be ~12.5: {}",
+            cost.cpu_seconds
+        );
+        assert!(
+            cost.estimated_cost_usd > 0.0,
+            "cost should be positive for remote sandboxes"
+        );
+    }
+
     /// Integration test for Modal sandbox download functionality via DefaultProvider.
     ///
     /// This test requires Modal credentials (MODAL_TOKEN_ID and MODAL_TOKEN_SECRET).
@@ -681,6 +792,7 @@ mod tests {
             timeout_secs: 300,
             env: Default::default(),
             copy_dirs: vec![],
+            cpu_cores: 1.0,
         };
 
         let provider = DefaultProvider::from_config(config, &[], false, None, None).await?;
