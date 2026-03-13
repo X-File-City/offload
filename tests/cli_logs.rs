@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use assert_cmd::Command;
 use offload::config::{
-    Config, FrameworkConfig, GroupConfig, LocalProviderConfig, OffloadConfig, ProviderConfig,
-    PytestFrameworkConfig, ReportConfig,
+    CargoFrameworkConfig, Config, FrameworkConfig, GroupConfig, LocalProviderConfig, OffloadConfig,
+    ProviderConfig, PytestFrameworkConfig, ReportConfig,
 };
 use predicates::prelude::*;
 use tempfile::TempDir;
@@ -386,5 +386,56 @@ fn test_logs_test_regex_invalid() -> anyhow::Result<()> {
         .assert()
         .failure()
         .stderr(predicate::str::contains("Invalid --test-regex pattern"));
+    Ok(())
+}
+
+/// Write a cargo framework config so `offload run --collect-only` exercises test discovery
+/// without needing pytest.
+fn write_cargo_config(config_path: &Path, output_dir: &Path) -> anyhow::Result<()> {
+    let config = Config {
+        offload: OffloadConfig {
+            max_parallel: 1,
+            test_timeout_secs: 300,
+            working_dir: None,
+            sandbox_project_root: ".".to_string(),
+            sandbox_init_cmd: None,
+        },
+        provider: ProviderConfig::Local(LocalProviderConfig::default()),
+        framework: FrameworkConfig::Cargo(CargoFrameworkConfig::default()),
+        groups: HashMap::from([("all".to_string(), GroupConfig::default())]),
+        report: ReportConfig {
+            output_dir: PathBuf::from(output_dir),
+            junit: true,
+            junit_file: "junit.xml".to_string(),
+        },
+    };
+    let content = toml::to_string_pretty(&config).context("failed to serialize config")?;
+    fs::write(config_path, content).context("failed to write config")?;
+    Ok(())
+}
+
+#[test]
+fn test_show_estimated_cost_flag_accepted() -> anyhow::Result<()> {
+    let tmp = TempDir::new()?;
+    let output_dir = tmp.path().join("results");
+    fs::create_dir_all(&output_dir)?;
+
+    let config_path = tmp.path().join("offload.toml");
+    write_cargo_config(&config_path, &output_dir)?;
+
+    // --show-estimated-cost combined with --collect-only: exercises flag parsing
+    // without needing a full run. The flag should be accepted without error.
+    offload_cmd()?
+        .args([
+            "-c",
+            config_path
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("non-UTF-8 path"))?,
+            "run",
+            "--collect-only",
+            "--show-estimated-cost",
+        ])
+        .assert()
+        .success();
     Ok(())
 }

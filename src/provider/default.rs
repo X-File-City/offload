@@ -697,6 +697,63 @@ mod tests {
         );
     }
 
+    #[test]
+    fn cost_estimate_scales_with_cpu_cores() {
+        use crate::provider::Sandbox;
+
+        let sandbox = DefaultSandbox {
+            id: "sb-cost-1".to_string(),
+            connector: Arc::new(ShellConnector::new()),
+            exec_command: String::new(),
+            destroy_command: String::new(),
+            download_command: None,
+            env: vec![],
+            created_at: Instant::now() - std::time::Duration::from_secs(100),
+            cpu_cores: 2.0,
+        };
+
+        let cost = sandbox.cost_estimate();
+        // 100s * 2.0 cores = ~200 CPU-seconds (allow small timing tolerance)
+        assert!(
+            cost.cpu_seconds >= 199.0 && cost.cpu_seconds <= 201.0,
+            "cpu_seconds should be ~200: {}",
+            cost.cpu_seconds
+        );
+        let expected_usd = cost.cpu_seconds * MODAL_CPU_COST_PER_CORE_PER_SEC;
+        assert!(
+            (cost.estimated_cost_usd - expected_usd).abs() < 0.0001,
+            "cost should match rate * cpu_seconds"
+        );
+    }
+
+    #[test]
+    fn cost_estimate_fractional_cpu_cores() {
+        use crate::provider::Sandbox;
+
+        let sandbox = DefaultSandbox {
+            id: "sb-cost-2".to_string(),
+            connector: Arc::new(ShellConnector::new()),
+            exec_command: String::new(),
+            destroy_command: String::new(),
+            download_command: None,
+            env: vec![],
+            created_at: Instant::now() - std::time::Duration::from_secs(100),
+            cpu_cores: 0.125,
+        };
+
+        let cost = sandbox.cost_estimate();
+        // 100s * 0.125 cores = ~12.5 CPU-seconds
+        assert!(
+            cost.cpu_seconds >= 12.0 && cost.cpu_seconds <= 13.0,
+            "cpu_seconds should be ~12.5: {}",
+            cost.cpu_seconds
+        );
+        assert!(
+            cost.estimated_cost_usd > 0.0,
+            "cost should be positive for remote sandboxes"
+        );
+    }
+
     /// Integration test for Modal sandbox download functionality via DefaultProvider.
     ///
     /// This test requires Modal credentials (MODAL_TOKEN_ID and MODAL_TOKEN_SECRET).

@@ -200,3 +200,22 @@ async fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_sandbox_cost_estimate_is_zero() {
+        let sandbox = LocalSandbox {
+            id: "local-1".to_string(),
+            working_dir: PathBuf::from("."),
+            env: vec![],
+            shell: "/bin/sh".to_string(),
+        };
+
+        let cost = sandbox.cost_estimate();
+        assert_eq!(cost.cpu_seconds, 0.0);
+        assert_eq!(cost.estimated_cost_usd, 0.0);
+    }
+}
