@@ -1,5 +1,6 @@
 //! Vitest framework implementation using `vitest list --json` for discovery.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
@@ -93,8 +94,6 @@ fn to_vitest_match_name(name: &str) -> String {
 /// Vitest `--testNamePattern` matches by the space-separated full name, so
 /// duplicates would cause over-selection.
 fn check_unique_test_names(tests: &[TestRecord]) -> FrameworkResult<()> {
-    use std::collections::HashMap;
-
     let mut seen: HashMap<String, usize> = HashMap::new();
     for t in tests {
         let name =
@@ -502,7 +501,7 @@ mod tests {
             .args
             .iter()
             .position(|a| a == "--testNamePattern")
-            .unwrap();
+            .ok_or("--testNamePattern not found in args")?;
         let pattern = &cmd.args[tnp_idx + 1];
         assert!(pattern.starts_with("^("));
         assert!(pattern.ends_with(")$"));
@@ -530,7 +529,7 @@ mod tests {
             .args
             .iter()
             .position(|a| a == "--reporter=json")
-            .unwrap();
+            .ok_or("--reporter=json not found in args")?;
         assert!(tnp_idx < reporter_idx);
 
         Ok(())
@@ -553,7 +552,7 @@ mod tests {
             .args
             .iter()
             .position(|a| a == "--testNamePattern")
-            .unwrap();
+            .ok_or("--testNamePattern not found in args")?;
         let pattern = &cmd.args[tnp_idx + 1];
         // Parentheses, dot, plus, star should be escaped
         assert!(
