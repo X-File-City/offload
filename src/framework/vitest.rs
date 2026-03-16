@@ -447,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn test_execution_command_builds_file_args() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_execution_command_builds_name_pattern() -> Result<(), Box<dyn std::error::Error>> {
         let config = VitestFrameworkConfig {
             command: "npx vitest".to_string(),
             run_args: Some("--no-coverage".to_string()),
@@ -533,7 +533,7 @@ mod tests {
         };
         let fw = VitestFramework::new(config)?;
 
-        // Leaf name is "test.name+thing*" — regex metacharacters should be escaped
+        // Name part contains regex metacharacters that should be escaped
         let r1 = TestRecord::new("tests/a.test.ts > suite (group) > test.name+thing*", "grp");
         let tests = vec![TestInstance::new(&r1)];
         let cmd = fw.produce_test_execution_command(&tests, "/tmp/out.json");
