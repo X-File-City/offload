@@ -798,6 +798,63 @@ mod tests {
     }
 
     #[test]
+    fn test_has_any_failures_empty_report() {
+        let report = MasterJunitReport::new(0);
+        assert!(!report.has_any_failures());
+    }
+
+    #[test]
+    fn test_has_any_failures_all_passed() {
+        let xml = r#"<?xml version="1.0"?>
+<testsuite name="test" tests="2" failures="0">
+    <testcase classname="foo" name="test_a" time="0.1" />
+    <testcase classname="foo" name="test_b" time="0.2" />
+</testsuite>"#;
+
+        let mut report = MasterJunitReport::new(2);
+        report.add_junit_xml(xml);
+        assert!(!report.has_any_failures());
+    }
+
+    #[test]
+    fn test_has_any_failures_with_failure() {
+        let xml = r#"<?xml version="1.0"?>
+<testsuite name="test" tests="2" failures="1">
+    <testcase classname="foo" name="test_a" time="0.1" />
+    <testcase classname="foo" name="test_b" time="0.2">
+        <failure message="oops">stack trace</failure>
+    </testcase>
+</testsuite>"#;
+
+        let mut report = MasterJunitReport::new(2);
+        report.add_junit_xml(xml);
+        assert!(report.has_any_failures());
+    }
+
+    #[test]
+    fn test_has_any_failures_flaky_not_failure() {
+        let xml_fail = r#"<?xml version="1.0"?>
+<testsuite name="test" tests="1" failures="1">
+    <testcase classname="foo" name="test_flaky" time="0.1">
+        <failure message="oops">stack trace</failure>
+    </testcase>
+</testsuite>"#;
+
+        let xml_pass = r#"<?xml version="1.0"?>
+<testsuite name="test" tests="1" failures="0">
+    <testcase classname="foo" name="test_flaky" time="0.1" />
+</testsuite>"#;
+
+        let mut report = MasterJunitReport::new(1);
+        report.add_junit_xml(xml_fail);
+        assert!(report.has_any_failures());
+
+        report.add_junit_xml(xml_pass);
+        // After retry passes, it's flaky not failed
+        assert!(!report.has_any_failures());
+    }
+
+    #[test]
     fn test_get_attr_unescapes_ampersand_and_quotes() {
         let xml = r#"<testsuite name="a &amp; b" tests="1" failures="0" errors="0" skipped="0" time="0"><testcase name="x &lt; y &gt; z &quot;q&quot;" classname="c" time="0"/></testsuite>"#;
         let suites = parse_all_testsuites_xml(&format!(
