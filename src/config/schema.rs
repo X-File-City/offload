@@ -331,6 +331,7 @@ pub enum FrameworkConfig {
     Pytest(PytestFrameworkConfig),
 
     /// Discover and run Rust tests with cargo test.
+    #[serde(rename = "nextest")]
     Cargo(CargoFrameworkConfig),
 
     /// Discover and run tests with custom shell commands.
@@ -804,7 +805,7 @@ mod tests {
             type = "local"
 
             [framework]
-            type = "cargo"
+            type = "nextest"
 
             [groups.all]
             retry_count = 0

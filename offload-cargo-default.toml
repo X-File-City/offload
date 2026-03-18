@@ -15,8 +15,8 @@ download_command = "uv run @modal_sandbox.py download {sandbox_id} {paths}"
 timeout_secs = 600
 
 [framework]
-type = "cargo"
-# test_id_format defaults to "{classname} {name}" for cargo
+type = "nextest"
+# test_id_format defaults to "{classname} {name}" for nextest
 
 [groups.all]
 retry_count = 1
