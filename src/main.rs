@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, anyhow};
 use clap::{Parser, Subcommand};
-use tracing::{Level, info};
+use tracing::{Level, info, warn};
 use tracing_subscriber::FmtSubscriber;
 
 use offload::config::{
@@ -296,6 +296,11 @@ async fn dispatch_framework<P: offload::provider::SandboxProvider>(
             .await
         }
         FrameworkConfig::Default(f_cfg) => {
+            if fail_fast {
+                warn!(
+                    "--fail-fast: the default framework does not pass a stop flag to the test runner. Batches will still be cancelled on failure, but tests within a running batch will not stop early."
+                );
+            }
             run_all_tests(
                 config,
                 all_tests,
