@@ -346,20 +346,40 @@ This runs test discovery locally without creating sandboxes or executing tests. 
 
 Do not proceed to execution until `offload collect` lists the expected tests.
 
-**Then, run the full test suite:**
+**Then, establish a baseline by running the test suite directly (without Offload):**
+
+```bash
+# For vitest:
+pnpm exec vitest run --project <project>
+# For pytest:
+<command> --tb=short
+# For cargo:
+cargo nextest run
+```
+
+Record the number of passed, failed, and skipped tests. Some projects have pre-existing test failures (snapshot mismatches, missing fixtures, flaky tests). These are **not your problem to fix** — the goal is for Offload's results to match this baseline, not to achieve zero failures.
+
+**Then, run the full test suite via Offload:**
 
 ```bash
 ./scripts/offload-tests.sh
 ```
 
-**All tests must pass.** If they don't:
+**Compare Offload's results against the baseline.** Offload is working correctly when:
+- The number of passed tests matches the baseline (within 1-2 for flaky tests)
+- The number of failed tests matches the baseline
+- There are no "Not Run" tests (0 missing)
+
+**If Offload's results differ from the baseline, iterate until they match.** Common issues and fixes:
 
 1. **"Exec format error"**: `.venv` or local binaries leaked into the sandbox. See the Troubleshooting section on creating a `.dockerignore`.
 2. **"No such file or directory"**: The sandbox is missing a dependency. Check the Dockerfile has the right runtime and package manager.
 3. **"Token validation failed"**: Modal credentials are expired. Run `modal token new` to refresh.
-4. **Tests discovered but "Not Run"**: The test command is failing silently inside the sandbox. Debug by checking if `uv`/`python`/`cargo` is available in the Dockerfile.
+4. **Tests discovered but "Not Run"**: The test command is failing silently inside the sandbox. Check batch logs in `test-results/logs/` for errors. Debug by checking if `uv`/`python`/`cargo` is available in the Dockerfile.
+5. **More failures than baseline**: Offload may be running tests in a different order or with different environment. Check batch logs for the extra failures and compare with the baseline output.
+6. **Fewer tests discovered than expected**: Check that `offload collect` finds all the tests. If using vitest with `--project`, ensure the filter matches.
 
-Do not proceed to optimization until all tests pass.
+**Keep running and fixing until Offload's pass/fail counts match the baseline. Do not proceed to optimization until they match.**
 
 ### Step 10: Optimize Parallelism
 
