@@ -9,7 +9,7 @@ sandbox_project_root = "."
 type = "local"
 
 [framework]
-type = "cargo"
+type = "nextest"
 
 [groups.all]
 retry_count = 0

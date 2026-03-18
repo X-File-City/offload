@@ -97,7 +97,7 @@ enum Commands {
         #[arg(short, long, default_value = "local")]
         provider: String,
 
-        /// Test framework (pytest, cargo, vitest, default)
+        /// Test framework (pytest, nextest, vitest, default)
         #[arg(short, long, default_value = "pytest")]
         framework: String,
     },
@@ -180,7 +180,7 @@ async fn main() -> Result<()> {
 fn framework_type_name(framework: &FrameworkConfig) -> &'static str {
     match framework {
         FrameworkConfig::Pytest(_) => "pytest",
-        FrameworkConfig::Cargo(_) => "cargo",
+        FrameworkConfig::Cargo(_) => "nextest",
         FrameworkConfig::Default(_) => "default",
         FrameworkConfig::Vitest(_) => "vitest",
     }
@@ -720,7 +720,7 @@ fn init_config(provider: &str, framework: &str) -> Result<()> {
             test_id_format: "{name}".into(),
             ..Default::default()
         }),
-        "cargo" => FrameworkConfig::Cargo(CargoFrameworkConfig {
+        "nextest" => FrameworkConfig::Cargo(CargoFrameworkConfig {
             test_id_format: "{classname} {name}".into(),
             ..Default::default()
         }),
@@ -738,7 +738,7 @@ fn init_config(provider: &str, framework: &str) -> Result<()> {
         }),
         _ => {
             eprintln!(
-                "Unknown framework: {}. Use: pytest, cargo, vitest, default",
+                "Unknown framework: {}. Use: pytest, nextest, vitest, default",
                 framework
             );
             std::process::exit(1);
