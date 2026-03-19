@@ -14,7 +14,7 @@
     {
       "id": "entry-point",
       "title": "CLI Entry Point",
-      "description": "main.rs is the CLI entry point using clap for argument parsing. It handles subcommands: run (execute tests), collect (discover tests), validate (check config), init (generate config), and logs (view results). The lib.rs module re-exports the public API surface.",
+      "description": "main.rs is the CLI entry point with subcommands: run, collect, validate, init, and logs. lib.rs re-exports the public API.",
       "focusDirectory": "src",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -34,7 +34,7 @@
     {
       "id": "configuration",
       "title": "Configuration Layer",
-      "description": "The config module parses offload.toml files using TOML deserialization with environment variable expansion (${VAR} and ${VAR:-default} syntax). config.rs handles loading and validation, while config/schema.rs defines the typed configuration structs: OffloadConfig, ProviderConfig, FrameworkConfig, GroupConfig, and ReportConfig.",
+      "description": "The config module parses offload.toml with environment variable expansion. config.rs handles loading and validation; config/schema.rs defines the typed structs.",
       "focusDirectory": "src",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -66,7 +66,7 @@
     {
       "id": "providers",
       "title": "Execution Providers",
-      "description": "Providers abstract sandbox lifecycle management. The provider trait defines prepare, create, exec, destroy, and download operations. Three implementations exist: Local (child processes), Default (custom shell commands with placeholder substitution), and Modal (simplified Modal sandbox integration). The connector module handles the low-level process spawning shared across providers.",
+      "description": "Providers abstract sandbox lifecycle: prepare, create, exec, destroy, and download. Three implementations: Local (child processes), Default (custom shell commands), and Modal. The connector module handles shared process spawning.",
       "focusDirectory": "src",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -97,7 +97,7 @@
     {
       "id": "frameworks",
       "title": "Test Frameworks",
-      "description": "Frameworks handle test discovery and command generation. Each framework implements discover (list test IDs) and build_command (construct execution commands). Pytest runs --collect-only for discovery, Cargo uses nextest list, Vitest uses --reporter=json, and Default uses custom shell commands. The framework trait also defines test_id_format for matching discovered IDs to JUnit XML results.",
+      "description": "Frameworks handle test discovery and command generation. Pytest uses --collect-only, Cargo uses nextest list, Vitest uses --reporter=json, and Default uses custom commands. Each defines a test_id_format for matching results to discovered IDs.",
       "focusDirectory": "src/framework",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -120,7 +120,7 @@
     {
       "id": "orchestrator",
       "title": "Orchestrator: The Engine",
-      "description": "The orchestrator is the heart of Offload. It coordinates the entire test run: scheduler.rs partitions tests into batches using LPT scheduling (or round-robin fallback), pool.rs manages a pool of sandboxes, spawn.rs handles concurrent batch execution across sandboxes, and runner.rs ties it all together -- driving the discover-schedule-execute-collect loop with retry logic and fail-fast support.",
+      "description": "The heart of Offload. scheduler.rs partitions tests into batches (LPT or round-robin), pool.rs manages sandboxes, spawn.rs runs batches concurrently, and runner.rs drives the full discover-schedule-execute-collect loop with retry and fail-fast.",
       "focusDirectory": "src/orchestrator",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -143,7 +143,7 @@
     {
       "id": "reporting",
       "title": "Reporting & Tracing",
-      "description": "The report module handles JUnit XML parsing and generation. After each batch, results are matched back to discovered test IDs using test_id_format. The trace module emits Chrome Trace Event JSON (Perfetto-compatible) for visualizing execution timelines -- showing local phases, orchestrator scheduling, and per-sandbox batch execution. The bundled module manages extraction of embedded scripts (like modal_sandbox.py) from the binary.",
+      "description": "report/ handles JUnit XML parsing, matching results to discovered test IDs. trace.rs emits Perfetto-compatible execution timelines. bundled.rs manages extraction of embedded scripts from the binary.",
       "focusDirectory": "src",
       "colorMode": "fileTypes",
       "highlightLayers": [
@@ -174,43 +174,9 @@
     {
       "id": "full-picture",
       "title": "The Full Picture",
-      "description": "Offload's architecture flows top-down: CLI parses args, config loads and validates the TOML file, the orchestrator discovers tests via the framework, schedules batches, creates sandboxes via the provider, executes tests, collects JUnit results, handles retries, and produces a final report. The examples/ directory contains sample Dockerfiles and test suites for integration testing Offload itself.",
+      "description": "Offload's architecture flows top-down: CLI parses args, config validates the TOML, the orchestrator discovers tests via the framework, schedules batches, creates sandboxes via the provider, executes tests, collects results, and handles retries.",
       "focusDirectory": "",
-      "colorMode": "fileTypes",
-      "highlightLayers": [
-        {
-          "id": "core-src",
-          "name": "Source Code",
-          "color": "#3b82f6",
-          "items": [
-            { "path": "src", "type": "directory" }
-          ],
-          "opacity": 0.5,
-          "renderStrategy": "border"
-        },
-        {
-          "id": "testing-infra",
-          "name": "Tests & Examples",
-          "color": "#10b981",
-          "items": [
-            { "path": "tests", "type": "directory" },
-            { "path": "examples", "type": "directory" }
-          ],
-          "opacity": 0.5,
-          "renderStrategy": "border"
-        },
-        {
-          "id": "project-config",
-          "name": "Project Configuration",
-          "color": "#f59e0b",
-          "items": [
-            { "path": "Cargo.toml", "type": "file" },
-            { "path": "offload.toml", "type": "file" }
-          ],
-          "opacity": 0.5,
-          "renderStrategy": "border"
-        }
-      ]
+      "colorMode": "fileTypes"
     }
   ]
 }
