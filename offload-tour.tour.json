@@ -107,10 +107,7 @@
           "color": "#ef4444",
           "items": [
             { "path": "src/framework.rs", "type": "file" },
-            { "path": "src/framework/pytest.rs", "type": "file" },
-            { "path": "src/framework/cargo.rs", "type": "file" },
-            { "path": "src/framework/default.rs", "type": "file" },
-            { "path": "src/framework/vitest.rs", "type": "file" }
+            { "path": "src/framework", "type": "directory" }
           ],
           "opacity": 0.8,
           "renderStrategy": "border"
@@ -130,10 +127,7 @@
           "color": "#8b5cf6",
           "items": [
             { "path": "src/orchestrator.rs", "type": "file" },
-            { "path": "src/orchestrator/runner.rs", "type": "file" },
-            { "path": "src/orchestrator/scheduler.rs", "type": "file" },
-            { "path": "src/orchestrator/pool.rs", "type": "file" },
-            { "path": "src/orchestrator/spawn.rs", "type": "file" }
+            { "path": "src/orchestrator", "type": "directory" }
           ],
           "opacity": 0.8,
           "renderStrategy": "border"
@@ -174,7 +168,7 @@
     {
       "id": "full-picture",
       "title": "The Full Picture",
-      "description": "Offload's architecture flows top-down: CLI parses args, config validates the TOML, the orchestrator discovers tests via the framework, schedules batches, creates sandboxes via the provider, executes tests, collects results, and handles retries.",
+      "description": "Offload's architecture flows top-down: CLI parses args, config loads and validates the TOML file, the orchestrator discovers tests via the framework, schedules batches, creates sandboxes via the provider, executes tests, collects JUnit results, handles retries, and produces a final report. The examples/ directory contains sample Dockerfiles and test suites for integration testing Offload itself.",
       "focusDirectory": "",
       "colorMode": "fileTypes"
     }
