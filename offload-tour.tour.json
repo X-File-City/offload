@@ -14,7 +14,7 @@
     {
       "id": "entry-point",
       "title": "CLI Entry Point",
-      "description": "main.rs is the CLI entry point with subcommands: run, collect, validate, init, and logs. lib.rs re-exports the public API.",
+      "description": "The CLI entry point is main.rs, with subcommands: run, collect, validate, init, and logs. lib.rs re-exports the public API.",
       "focusDirectory": "src",
       "colorMode": "fileTypes",
       "highlightLayers": [
